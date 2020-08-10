@@ -15,7 +15,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <OpenCore.h>
 #include <Uefi.h>
 
-#include <Guid/OcVariables.h>
+#include <Guid/OcVariable.h>
 
 #include <Protocol/DevicePath.h>
 #include <Protocol/LoadedImage.h>
@@ -60,6 +60,10 @@ OC_PRIVILEGE_CONTEXT
 mOpenCorePrivilege;
 
 STATIC
+EFI_HANDLE
+mLoadHandle;
+
+STATIC
 EFI_STATUS
 EFIAPI
 OcStartImage (
@@ -97,7 +101,6 @@ OcMain (
   )
 {
   EFI_STATUS                Status;
-  EFI_HANDLE                LoadHandle;
   OC_PRIVILEGE_CONTEXT      *Privilege;
 
   DEBUG ((DEBUG_INFO, "OC: OcMiscEarlyInit...\n"));
@@ -115,6 +118,8 @@ OcMain (
 
   DEBUG ((DEBUG_INFO, "OC: OcLoadNvramSupport...\n"));
   OcLoadNvramSupport (Storage, &mOpenCoreConfiguration);
+  DEBUG ((DEBUG_INFO, "OC: OcMiscMiddleInit...\n"));
+  OcMiscMiddleInit (Storage, &mOpenCoreConfiguration, LoadPath, &mLoadHandle);
   DEBUG ((DEBUG_INFO, "OC: OcLoadUefiSupport...\n"));
   OcLoadUefiSupport (Storage, &mOpenCoreConfiguration, &mOpenCoreCpuInfo);
   DEBUG ((DEBUG_INFO, "OC: OcLoadAcpiSupport...\n"));
@@ -124,7 +129,7 @@ OcMain (
   DEBUG ((DEBUG_INFO, "OC: OcLoadDevPropsSupport...\n"));
   OcLoadDevPropsSupport (&mOpenCoreConfiguration);
   DEBUG ((DEBUG_INFO, "OC: OcMiscLateInit...\n"));
-  OcMiscLateInit (&mOpenCoreConfiguration, LoadPath, &LoadHandle);
+  OcMiscLateInit (Storage, &mOpenCoreConfiguration);
   DEBUG ((DEBUG_INFO, "OC: OcLoadKernelSupport...\n"));
   OcLoadKernelSupport (&mOpenCoreStorage, &mOpenCoreConfiguration, &mOpenCoreCpuInfo);
 
@@ -139,7 +144,7 @@ OcMain (
     Privilege = NULL;
   }
 
-  DEBUG ((DEBUG_INFO, "OC: OpenCore is loaded, showing boot menu...\n"));
+  DEBUG ((DEBUG_INFO, "OC: All green, starting boot management...\n"));
 
   OcMiscBoot (
     &mOpenCoreStorage,
@@ -147,7 +152,7 @@ OcMain (
     Privilege,
     OcStartImage,
     mOpenCoreConfiguration.Uefi.Quirks.RequestBootVarRouting,
-    LoadHandle
+    mLoadHandle
     );
 }
 
@@ -196,12 +201,23 @@ OcBootstrapRerun (
 }
 
 STATIC
+EFI_HANDLE
+EFIAPI
+OcGetLoadHandle (
+  IN OC_BOOTSTRAP_PROTOCOL            *This
+  )
+{
+  return mLoadHandle;
+}
+
+STATIC
 OC_BOOTSTRAP_PROTOCOL
 mOpenCoreBootStrap = {
-  .Revision    = OC_BOOTSTRAP_PROTOCOL_REVISION,
-  .NestedCount = 0,
-  .VaultKey    = NULL,
-  .ReRun       = OcBootstrapRerun
+  .Revision      = OC_BOOTSTRAP_PROTOCOL_REVISION,
+  .NestedCount   = 0,
+  .VaultKey      = NULL,
+  .ReRun         = OcBootstrapRerun,
+  .GetLoadHandle = OcGetLoadHandle,
 };
 
 EFI_STATUS

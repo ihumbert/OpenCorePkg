@@ -16,6 +16,7 @@
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/MtrrLib.h>
+#include <Library/OcBootManagementLib.h>
 #include <Library/OcCompressionLib.h>
 #include <Library/OcCpuLib.h>
 #include <Library/OcGuardLib.h>
@@ -25,6 +26,8 @@
 
 #include "OpenCanopy.h"
 #include "GuiIo.h"
+#include "GuiApp.h"
+#include "Views/BootPicker.h"
 
 typedef struct {
   UINT32 MinX;
@@ -32,6 +35,12 @@ typedef struct {
   UINT32 MaxX;
   UINT32 MaxY;
 } GUI_DRAW_REQUEST;
+
+//
+// Variables to assign the picked volume automatically once menu times out
+//
+extern BOOT_PICKER_GUI_CONTEXT mGuiContext;
+extern GUI_VOLUME_PICKER mBootPicker;
 
 //
 // I/O contexts
@@ -60,7 +69,7 @@ STATIC GUI_DRAW_REQUEST              mDrawRequests[4]   = { { 0 } };
 //
 STATIC
 CONST UINT8
-mAppleDiskLabelImagePalette[256] = {
+gAppleDiskLabelImagePalette[256] = {
   [0x00] = 255,
   [0xf6] = 238,
   [0xf7] = 221,
@@ -158,16 +167,16 @@ GuiClipChildBounds (
 
 VOID
 GuiObjDrawDelegate (
-  IN OUT GUI_OBJ              *This,
-  IN OUT GUI_DRAWING_CONTEXT  *DrawContext,
-  IN     VOID                 *Context OPTIONAL,
-  IN     INT64                BaseX,
-  IN     INT64                BaseY,
-  IN     UINT32               OffsetX,
-  IN     UINT32               OffsetY,
-  IN     UINT32               Width,
-  IN     UINT32               Height,
-  IN     BOOLEAN              RequestDraw
+  IN OUT GUI_OBJ                 *This,
+  IN OUT GUI_DRAWING_CONTEXT     *DrawContext,
+  IN     BOOT_PICKER_GUI_CONTEXT *Context,
+  IN     INT64                   BaseX,
+  IN     INT64                   BaseY,
+  IN     UINT32                  OffsetX,
+  IN     UINT32                  OffsetY,
+  IN     UINT32                  Width,
+  IN     UINT32                  Height,
+  IN     BOOLEAN                 RequestDraw
   )
 {
   BOOLEAN       Result;
@@ -234,14 +243,14 @@ GuiObjDrawDelegate (
 
 GUI_OBJ *
 GuiObjDelegatePtrEvent (
-  IN OUT GUI_OBJ              *This,
-  IN OUT GUI_DRAWING_CONTEXT  *DrawContext,
-  IN     VOID                 *Context OPTIONAL,
-  IN     GUI_PTR_EVENT        Event,
-  IN     INT64                BaseX,
-  IN     INT64                BaseY,
-  IN     INT64                OffsetX,
-  IN     INT64                OffsetY
+  IN OUT GUI_OBJ                 *This,
+  IN OUT GUI_DRAWING_CONTEXT     *DrawContext,
+  IN     BOOT_PICKER_GUI_CONTEXT *Context,
+  IN     GUI_PTR_EVENT           Event,
+  IN     INT64                   BaseX,
+  IN     INT64                   BaseY,
+  IN     INT64                   OffsetX,
+  IN     INT64                   OffsetY
   )
 {
   GUI_OBJ       *Obj;
@@ -947,15 +956,16 @@ GuiRedrawAndFlushScreen (
 
 EFI_STATUS
 GuiLibConstruct (
-  IN UINT32  CursorDefaultX,
-  IN UINT32  CursorDefaultY
+  IN OC_PICKER_CONTEXT  *PickerContet,
+  IN UINT32             CursorDefaultX,
+  IN UINT32             CursorDefaultY
   )
 {
   CONST EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *OutputInfo;
 
   mOutputContext = GuiOutputConstruct ();
   if (mOutputContext == NULL) {
-    DEBUG ((DEBUG_ERROR, "OCUI: Failed to initialise output\n"));
+    DEBUG ((DEBUG_WARN, "OCUI: Failed to initialise output\n"));
     return EFI_UNSUPPORTED;
   }
 
@@ -966,16 +976,17 @@ GuiLibConstruct (
   CursorDefaultY = MIN (CursorDefaultY, OutputInfo->VerticalResolution   - 1);
 
   mPointerContext = GuiPointerConstruct (
-                      CursorDefaultX,
-                      CursorDefaultY,
-                      OutputInfo->HorizontalResolution,
-                      OutputInfo->VerticalResolution
-                      );
+    PickerContet,
+    CursorDefaultX,
+    CursorDefaultY,
+    OutputInfo->HorizontalResolution,
+    OutputInfo->VerticalResolution
+    );
   if (mPointerContext == NULL) {
     DEBUG ((DEBUG_WARN, "OCUI: Failed to initialise pointer\n"));
   }
 
-  mKeyContext = GuiKeyConstruct ();
+  mKeyContext = GuiKeyConstruct (PickerContet);
   if (mKeyContext == NULL) {
     DEBUG ((DEBUG_WARN, "OCUI: Failed to initialise key input\n"));
   }
@@ -988,7 +999,7 @@ GuiLibConstruct (
   mScreenBufferDelta = OutputInfo->HorizontalResolution * sizeof (*mScreenBuffer);
   mScreenBuffer      = AllocatePool (OutputInfo->VerticalResolution * mScreenBufferDelta);
   if (mScreenBuffer == NULL) {
-    DEBUG ((DEBUG_ERROR, "OCUI: GUI alloc failure\n"));
+    DEBUG ((DEBUG_WARN, "OCUI: GUI alloc failure\n"));
     GuiLibDestruct ();
     return EFI_OUT_OF_RESOURCES;
   }
@@ -1030,11 +1041,11 @@ GuiLibDestruct (
 
 VOID
 GuiViewInitialize (
-  OUT    GUI_DRAWING_CONTEXT   *DrawContext,
-  IN OUT GUI_OBJ               *Screen,
-  IN     GUI_CURSOR_GET_IMAGE  GetCursorImage,
-  IN     GUI_EXIT_LOOP         ExitLoop,
-  IN     VOID                  *GuiContext
+  OUT    GUI_DRAWING_CONTEXT     *DrawContext,
+  IN OUT GUI_OBJ                 *Screen,
+  IN     GUI_CURSOR_GET_IMAGE    GetCursorImage,
+  IN     GUI_EXIT_LOOP           ExitLoop,
+  IN     BOOT_PICKER_GUI_CONTEXT *GuiContext
   )
 {
   CONST EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *OutputInfo;
@@ -1055,6 +1066,22 @@ GuiViewInitialize (
   DrawContext->ExitLoop       = ExitLoop;
   DrawContext->GuiContext     = GuiContext;
   InitializeListHead (&DrawContext->Animations);
+}
+
+VOID
+GuiViewDeinitialize (
+  IN OUT    GUI_DRAWING_CONTEXT   *DrawContext
+  )
+{
+  ZeroMem (DrawContext, sizeof (*DrawContext));
+}
+
+CONST GUI_SCREEN_CURSOR *
+GuiViewCurrentCursor (
+  IN OUT GUI_DRAWING_CONTEXT  *DrawContext
+  )
+{
+  return &mScreenViewCursor;
 }
 
 VOID
@@ -1096,20 +1123,22 @@ GuiGetBaseCoords (
 
 VOID
 GuiDrawLoop (
-  IN OUT GUI_DRAWING_CONTEXT  *DrawContext
+  IN OUT GUI_DRAWING_CONTEXT  *DrawContext,
+  IN     UINT32               TimeOutSeconds
   )
 {
   EFI_STATUS          Status;
   BOOLEAN             Result;
 
-  EFI_INPUT_KEY       InputKey;
+  INTN                InputKey;
+  BOOLEAN             Modifier;
   GUI_POINTER_STATE   PointerState;
   GUI_OBJ             *HoldObject;
   INT64               HoldObjBaseX;
   INT64               HoldObjBaseY;
-
   CONST LIST_ENTRY    *AnimEntry;
   CONST GUI_ANIMATION *Animation;
+  UINT64              LoopStartTsc;
 
   ASSERT (DrawContext != NULL);
 
@@ -1125,9 +1154,8 @@ GuiDrawLoop (
   //
   // Main drawing loop, time and derieve sub-frequencies as required.
   //
-  mStartTsc = AsmReadTsc ();
+  LoopStartTsc = mStartTsc = AsmReadTsc ();
   do {
-    //UINT64 StartTsc = AsmReadTsc ();
     if (mPointerContext != NULL) {
       //
       // Process pointer events.
@@ -1178,7 +1206,7 @@ GuiDrawLoop (
       //
       // Process key events. Only allow one key at a time for now.
       //
-      Status = GuiKeyRead (mKeyContext, &InputKey);
+      Status = GuiKeyRead (mKeyContext, &InputKey, &Modifier);
       if (!EFI_ERROR (Status)) {
         ASSERT (DrawContext->Screen->KeyEvent != NULL);
         DrawContext->Screen->KeyEvent (
@@ -1187,14 +1215,13 @@ GuiDrawLoop (
                                DrawContext->GuiContext,
                                0,
                                0,
-                               &InputKey
+                               InputKey,
+                               Modifier
                                );
         //
-        // HACK: MSVC complains about unreachable code.
+        // If detected key press then disable menu timeout
         //
-        if (Status != EFI_SUCCESS) {
-          return;
-        }
+        TimeOutSeconds = 0;
       }
     }
 
@@ -1219,19 +1246,49 @@ GuiDrawLoop (
     //
     GuiFlushScreen (DrawContext);
 
-    //UINT64 EndTsc = AsmReadTsc ();
-    //DEBUG ((DEBUG_ERROR, "Loop delta TSC: %lld, target: %lld\n", EndTsc - StartTsc, mDeltaTscTarget));
+    //
+    // Exit early if reach timer timeout and timer isn't disabled due to key event
+    //
+    if (TimeOutSeconds > 0
+      && GetTimeInNanoSecond (AsmReadTsc () - LoopStartTsc) >= TimeOutSeconds * 1000000000ULL) {
+      //
+      // FIXME: There should be view function or alike.
+      //
+      mGuiContext.BootEntry = mBootPicker.SelectedEntry->Context;
+      break;
+    }
   } while (!DrawContext->ExitLoop (DrawContext->GuiContext));
 }
 
-RETURN_STATUS
+VOID
+GuiClearScreen (
+  IN OUT GUI_DRAWING_CONTEXT           *DrawContext,
+  IN     EFI_GRAPHICS_OUTPUT_BLT_PIXEL *Pixel
+  )
+{
+  GuiOutputBlt (
+    mOutputContext,
+    Pixel,
+    EfiBltVideoFill,
+    0,
+    0,
+    0,
+    0,
+    DrawContext->Screen->Width,
+    DrawContext->Screen->Height,
+    0
+    );
+}
+
+EFI_STATUS
 GuiIcnsToImageIcon (
   OUT GUI_IMAGE  *Image,
   IN  VOID       *IcnsImage,
   IN  UINT32     IcnsImageSize,
   IN  UINT8      Scale,
   IN  UINT32     MatchWidth,
-  IN  UINT32     MatchHeight
+  IN  UINT32     MatchHeight,
+  IN  BOOLEAN    AllowLess
   )
 {
   EFI_STATUS         Status;
@@ -1285,13 +1342,25 @@ GuiIcnsToImageIcon (
       Status = GuiPngToImage (
         Image,
         Record->Data,
-        RecordLength - sizeof (APPLE_ICNS_RECORD)
+        RecordLength - sizeof (APPLE_ICNS_RECORD),
+        TRUE
         );
 
       if (!EFI_ERROR (Status) && MatchWidth > 0 && MatchHeight > 0) {
-        if (Image->Width != MatchWidth * Scale
-          || Image->Height != MatchHeight * Scale) {
+        if (AllowLess
+          ? (Image->Width >  MatchWidth * Scale || Image->Height >  MatchWidth * Scale
+          || Image->Width == 0 || Image->Height == 0)
+          : (Image->Width != MatchWidth * Scale || Image->Height != MatchHeight * Scale)) {
           FreePool (Image->Buffer);
+          DEBUG ((
+            DEBUG_INFO,
+            "OCUI: Expected %dx%d, actual %dx%d, allow less: %d\n",
+             MatchWidth * Scale,
+             MatchHeight * Scale,
+             Image->Width,
+             Image->Height,
+             AllowLess
+            ));
           Status = EFI_UNSUPPORTED;
         }
       }
@@ -1339,7 +1408,7 @@ GuiIcnsToImageIcon (
     }
   }
 
-  return RETURN_NOT_FOUND;
+  return EFI_NOT_FOUND;
 }
 
 EFI_STATUS
@@ -1382,28 +1451,29 @@ GuiLabelToImage (
 
   if (Inverted) {
     for (PixelIdx = 0; PixelIdx < Image->Width * Image->Height; PixelIdx++) {
-      Image->Buffer[PixelIdx].Blue     = mAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
-      Image->Buffer[PixelIdx].Green    = mAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
-      Image->Buffer[PixelIdx].Red      = mAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
-      Image->Buffer[PixelIdx].Reserved = 255;
+      Image->Buffer[PixelIdx].Blue     = 0;
+      Image->Buffer[PixelIdx].Green    = 0;
+      Image->Buffer[PixelIdx].Red      = 0;
+      Image->Buffer[PixelIdx].Reserved = 255 -  gAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
     }
   } else {
     for (PixelIdx = 0; PixelIdx < Image->Width * Image->Height; PixelIdx++) {
-      Image->Buffer[PixelIdx].Blue     = 255 - mAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
-      Image->Buffer[PixelIdx].Green    = 255 - mAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
-      Image->Buffer[PixelIdx].Red      = 255 - mAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
-      Image->Buffer[PixelIdx].Reserved = 255;
+      Image->Buffer[PixelIdx].Blue     = 255 -  gAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
+      Image->Buffer[PixelIdx].Green    = 255 -  gAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
+      Image->Buffer[PixelIdx].Red      = 255 -  gAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
+      Image->Buffer[PixelIdx].Reserved = 255 -  gAppleDiskLabelImagePalette[Label->Data[PixelIdx]];
     }
   }
 
   return EFI_SUCCESS;
 }
 
-RETURN_STATUS
+EFI_STATUS
 GuiPngToImage (
   OUT GUI_IMAGE  *Image,
   IN  VOID       *ImageData,
-  IN  UINT32     ImageDataSize
+  IN  UINTN      ImageDataSize,
+  IN  BOOLEAN    PremultiplyAlpha
   )
 {
   EFI_STATUS                       Status;
@@ -1425,19 +1495,21 @@ GuiPngToImage (
     return Status;
   }
 
-  BufferWalker = Image->Buffer;
-  for (Index = 0; Index < (UINTN) Image->Width * Image->Height; ++Index) {
-    TmpChannel             = (UINT8) ((BufferWalker->Blue * BufferWalker->Reserved) / 0xFF);
-    BufferWalker->Blue     = (UINT8) ((BufferWalker->Red * BufferWalker->Reserved) / 0xFF);
-    BufferWalker->Green    = (UINT8) ((BufferWalker->Green * BufferWalker->Reserved) / 0xFF);
-    BufferWalker->Red      = TmpChannel;
-    ++BufferWalker;
+  if (PremultiplyAlpha) {
+    BufferWalker = Image->Buffer;
+    for (Index = 0; Index < (UINTN) Image->Width * Image->Height; ++Index) {
+      TmpChannel             = (UINT8) ((BufferWalker->Blue * BufferWalker->Reserved) / 0xFF);
+      BufferWalker->Blue     = (UINT8) ((BufferWalker->Red * BufferWalker->Reserved) / 0xFF);
+      BufferWalker->Green    = (UINT8) ((BufferWalker->Green * BufferWalker->Reserved) / 0xFF);
+      BufferWalker->Red      = TmpChannel;
+      ++BufferWalker;
+    }
   }
 
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
-RETURN_STATUS
+EFI_STATUS
 GuiCreateHighlightedImage (
   OUT GUI_IMAGE                            *SelectedImage,
   IN  CONST GUI_IMAGE                      *SourceImage,
@@ -1465,7 +1537,7 @@ GuiCreateHighlightedImage (
              SourceImage->Buffer
              );
   if (Buffer == NULL) {
-    return RETURN_OUT_OF_RESOURCES;
+    return EFI_OUT_OF_RESOURCES;
   }
 
   PremulPixel.Blue     = (UINT8)((HighlightPixel->Blue  * HighlightPixel->Reserved) / 0xFF);
@@ -1514,7 +1586,7 @@ GuiCreateHighlightedImage (
   SelectedImage->Width  = SourceImage->Width;
   SelectedImage->Height = SourceImage->Height;
   SelectedImage->Buffer = Buffer;
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
 /// A sine approximation via a third-order approx.

@@ -89,10 +89,17 @@ OcSetConsoleResolutionForProtocol (
       //
       // Custom resolution is requested.
       //
-      if (Info->HorizontalResolution == Width && Info->VerticalResolution == Height
+      if (Info->HorizontalResolution == Width
+        && Info->VerticalResolution == Height
+        && (Bpp == 0 || Bpp == 24 || Bpp == 32)
         && (Info->PixelFormat == PixelRedGreenBlueReserved8BitPerColor
-          || Info->PixelFormat == PixelBlueGreenRedReserved8BitPerColor)
-        && (Bpp == 0 || Bpp == 24 || Bpp == 32)) {
+          || Info->PixelFormat == PixelBlueGreenRedReserved8BitPerColor
+          || (Info->PixelFormat == PixelBitMask
+            && (Info->PixelInformation.RedMask  == 0xFF000000U
+              || Info->PixelInformation.RedMask == 0xFF0000U
+              || Info->PixelInformation.RedMask == 0xFF00U
+              || Info->PixelInformation.RedMask == 0xFFU))
+          || Info->PixelFormat == PixelBltOnly)) {
         ModeNumber = ModeIndex;
         FreePool (Info);
         break;
@@ -114,7 +121,7 @@ OcSetConsoleResolutionForProtocol (
 
   if (ModeNumber == GraphicsOutput->Mode->Mode) {
     DEBUG ((DEBUG_INFO, "OCC: Current mode matches desired mode %u\n", (UINT32) ModeNumber));
-    return EFI_SUCCESS;
+    return EFI_ALREADY_STARTED;
   }
 
   //
@@ -269,15 +276,16 @@ OcSetConsoleResolution (
   IN  UINT32              Bpp    OPTIONAL
   )
 {
-  EFI_STATUS                    Status;
+  EFI_STATUS                    Result;
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
 
 #ifdef OC_CONSOLE_CHANGE_ALL_RESOLUTIONS
+  EFI_STATUS                    Status;
   UINTN                         HandleCount;
   EFI_HANDLE                    *HandleBuffer;
   UINTN                         Index;
 
-  Status = gBS->LocateHandleBuffer (
+  Result = gBS->LocateHandleBuffer (
     ByProtocol,
     &gEfiGraphicsOutputProtocolGuid,
     NULL,
@@ -285,7 +293,9 @@ OcSetConsoleResolution (
     &HandleBuffer
     );
 
-  if (!EFI_ERROR (Status)) {
+  if (!EFI_ERROR (Result)) {
+    Result = EFI_NOT_FOUND;
+
     DEBUG ((DEBUG_INFO, "OCC: Found %u handles with GOP\n", (UINT32) HandleCount));
 
     for (Index = 0; Index < HandleCount; ++Index) {
@@ -302,29 +312,29 @@ OcSetConsoleResolution (
         continue;
       }
 
-      Status = OcSetConsoleResolutionForProtocol (GraphicsOutput, Width, Height, Bpp);
+      Result = OcSetConsoleResolutionForProtocol (GraphicsOutput, Width, Height, Bpp);
     }
 
     FreePool (HandleBuffer);
   } else {
-    DEBUG ((DEBUG_INFO, "OCC: Failed to find handles with GOP\n"));
+    DEBUG ((DEBUG_INFO, "OCC: Failed to find handles with GOP - %r\n", Result));
   }
 #else
-  Status = gBS->HandleProtocol (
+  Result = gBS->HandleProtocol (
     gST->ConsoleOutHandle,
     &gEfiGraphicsOutputProtocolGuid,
     (VOID **) &GraphicsOutput
     );
 
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "OCC: Missing GOP on ConOut - %r\n", Status));
-    return Status;
+  if (EFI_ERROR (Result)) {
+    DEBUG ((DEBUG_WARN, "OCC: Missing GOP on ConOut - %r\n", Result));
+    return Result;
   }
 
-  Status = OcSetConsoleResolutionForProtocol (GraphicsOutput, Width, Height, Bpp);
+  Result = OcSetConsoleResolutionForProtocol (GraphicsOutput, Width, Height, Bpp);
 #endif
 
-  return Status;
+  return Result;
 }
 
 EFI_STATUS

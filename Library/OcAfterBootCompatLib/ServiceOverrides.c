@@ -16,7 +16,7 @@
 #include "BootCompatInternal.h"
 
 #include <Guid/AppleVariable.h>
-#include <Guid/OcVariables.h>
+#include <Guid/OcVariable.h>
 
 #include <IndustryStandard/AppleHibernate.h>
 
@@ -456,7 +456,7 @@ OcGetMemoryMap (
   // Reserve larger area for the memory map when we need to split it.
   //
   if (BootCompat->ServiceState.AppleBootNestedCount > 0 && Status == EFI_BUFFER_TOO_SMALL) {
-    *MemoryMapSize += OcCountSplitDescritptors () * *DescriptorSize;
+    *MemoryMapSize += OcCountSplitDescriptors () * *DescriptorSize;
     return EFI_BUFFER_TOO_SMALL;
   }
 
@@ -695,18 +695,6 @@ OcStartImage (
       NULL,
       &DataSize,
       &Config.BootVariableRedirect
-      );
-
-    //
-    // Do the same thing for Boot#### variable fallback.
-    //
-    DataSize = sizeof (Config.BootVariableFallback);
-    BootCompat->ServicePtrs.GetVariable (
-      OC_BOOT_FALLBACK_VARIABLE_NAME,
-      &gOcVendorVariableGuid,
-      NULL,
-      &DataSize,
-      &Config.BootVariableFallback
       );
 
     //
@@ -1040,7 +1028,7 @@ InstallServiceOverrides (
 
   Status = gBS->CreateEvent (
     EVT_NOTIFY_SIGNAL,
-    TPL_NOTIFY,
+    TPL_CALLBACK,
     SetGetVariableHookHandler,
     BootCompat,
     &BootCompat->ServiceState.GetVariableEvent

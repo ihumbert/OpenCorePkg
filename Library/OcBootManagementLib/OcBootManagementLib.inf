@@ -32,6 +32,7 @@
 
 [Sources]
   AppleHibernate.c
+  ApplePanic.c
   BootArguments.c
   BootAudio.c
   BootEntryInfo.c
@@ -47,7 +48,6 @@
 [Packages]
   OpenCorePkg/OpenCorePkg.dec
   MdePkg/MdePkg.dec
-  EfiPkg/EfiPkg.dec
 
 [Guids]
   gAppleApfsContainerInfoGuid                   ## SOMETIMES_CONSUMES
@@ -108,5 +108,5 @@
   OcFileLib
   OcRtcLib
   OcXmlLib
-  OcTimerLib
+  TimerLib
   FileHandleLib

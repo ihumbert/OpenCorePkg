@@ -18,7 +18,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 #include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
-#include <Library/MacInfoLib.h>
+#include <Library/OcMacInfoLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PrintLib.h>
 #include <Library/OcCpuLib.h>
@@ -72,8 +72,7 @@ OcPlatformUpdateDataHub (
       Data.SystemSerialNumber = OC_BLOB_GET (&Config->PlatformInfo.DataHub.SystemSerialNumber);
     }
 
-    if (Config->PlatformInfo.DataHub.SystemUuid.Size == GUID_STRING_LENGTH + 1
-      && !EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.DataHub.SystemUuid), &Uuid))) {
+    if (!EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.DataHub.SystemUuid), &Uuid))) {
       Data.SystemUUID         = &Uuid;
     }
 
@@ -138,8 +137,7 @@ OcPlatformUpdateDataHub (
       Data.SystemSerialNumber = OC_BLOB_GET (&Config->PlatformInfo.Generic.SystemSerialNumber);
     }
 
-    if (Config->PlatformInfo.Generic.SystemUuid.Size == GUID_STRING_LENGTH + 1
-      && !EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.Generic.SystemUuid), &Uuid))) {
+    if (!EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.Generic.SystemUuid), &Uuid))) {
       Data.SystemUUID         = &Uuid;
     }
 
@@ -211,8 +209,7 @@ OcPlatformUpdateSmbios (
       Data.SystemSerialNumber = OC_BLOB_GET (&Config->PlatformInfo.Smbios.SystemSerialNumber);
     }
 
-    if (Config->PlatformInfo.DataHub.SystemUuid.Size == GUID_STRING_LENGTH + 1
-      && !EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.DataHub.SystemUuid), &Uuid))) {
+    if (!EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.DataHub.SystemUuid), &Uuid))) {
       Data.SystemUUID         = &Uuid;
     }
 
@@ -310,8 +307,7 @@ OcPlatformUpdateSmbios (
       Data.SystemSerialNumber = OC_BLOB_GET (&Config->PlatformInfo.Generic.SystemSerialNumber);
     }
 
-    if (Config->PlatformInfo.Generic.SystemUuid.Size == GUID_STRING_LENGTH + 1
-      && !EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.Generic.SystemUuid), &Uuid))) {
+    if (!EFI_ERROR (AsciiStrToGuid (OC_BLOB_GET (&Config->PlatformInfo.Generic.SystemUuid), &Uuid))) {
       Data.SystemUUID = &Uuid;
     }
 

@@ -14,17 +14,21 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 #include <OpenCore.h>
 
-#include <Guid/OcVariables.h>
+#include <Guid/AppleVariable.h>
+#include <Guid/OcVariable.h>
 
 #include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/OcAcpiLib.h>
 #include <Library/OcAppleBootPolicyLib.h>
 #include <Library/OcConsoleLib.h>
 #include <Library/OcDebugLogLib.h>
+#include <Library/OcSmbiosLib.h>
 #include <Library/OcStringLib.h>
 #include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 
@@ -70,6 +74,92 @@ OcStoreLoadPath (
     OutPath,
     Status
     ));
+}
+
+STATIC
+EFI_STATUS
+ProduceDebugReport (
+  IN EFI_HANDLE  VolumeHandle
+  )
+{
+  EFI_STATUS         Status;
+  EFI_FILE_PROTOCOL  *Fs;
+  EFI_FILE_PROTOCOL  *SysReport;
+  EFI_FILE_PROTOCOL  *SubReport;
+
+  if (VolumeHandle != NULL) {
+    Fs = LocateRootVolume (VolumeHandle, NULL);
+  } else {
+    Fs = NULL;
+  }
+
+  if (Fs == NULL) {
+    Status = FindWritableFileSystem (&Fs);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_INFO, "OC: No usable filesystem for report - %r\n", Status));
+      return EFI_NOT_FOUND;
+    }
+  }
+
+  Status = SafeFileOpen (
+    Fs,
+    &SysReport,
+    L"SysReport",
+    EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE,
+    EFI_FILE_DIRECTORY
+    );
+  if (!EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OC: Report is already created, skipping\n"));
+    SysReport->Close (SysReport);
+    Fs->Close (Fs);
+    return EFI_ALREADY_STARTED;
+  }
+
+  Status = SafeFileOpen (
+    Fs,
+    &SysReport,
+    L"SysReport",
+    EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
+    EFI_FILE_DIRECTORY
+    );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OC: Cannot create SysReport - %r\n", Status));
+    Fs->Close (Fs);
+    return Status;
+  }
+
+  Status = SafeFileOpen (
+    SysReport,
+    &SubReport,
+    L"ACPI",
+    EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
+    EFI_FILE_DIRECTORY
+    );
+  if (!EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OC: Dumping ACPI for report...\n"));
+    Status = AcpiDumpTables (SubReport);
+    SubReport->Close (SubReport);
+  }
+  DEBUG ((DEBUG_INFO, "OC: ACPI dumping - %r\n", Status)); 
+
+  Status = SafeFileOpen (
+    SysReport,
+    &SubReport,
+    L"SMBIOS",
+    EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
+    EFI_FILE_DIRECTORY
+    );
+  if (!EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OC: Dumping SMBIOS for report...\n"));
+    Status = OcSmbiosDump (SubReport);
+    SubReport->Close (SubReport);
+  }
+  DEBUG ((DEBUG_INFO, "OC: ACPI dumping - %r\n", Status)); 
+
+  SysReport->Close (SysReport);
+  Fs->Close (Fs);
+
+  return EFI_SUCCESS;
 }
 
 STATIC
@@ -258,6 +348,54 @@ OcToolDescribeEntry (
   return EFI_NOT_FOUND;
 }
 
+STATIC
+VOID
+SavePanicLog (
+  IN OC_STORAGE_CONTEXT  *Storage
+  )
+{
+  EFI_STATUS         Status;
+  VOID               *PanicLog;
+  EFI_FILE_PROTOCOL  *RootFs;
+  UINT32             PanicLogSize;
+  EFI_TIME           PanicLogDate;
+  CHAR16             PanicLogName[32];
+
+  PanicLog = OcReadApplePanicLog (&PanicLogSize);
+  if (PanicLog != NULL) {
+    Status = gRT->GetTime (&PanicLogDate, NULL);
+    if (EFI_ERROR (Status)) {
+      ZeroMem (&PanicLogDate, sizeof (PanicLogDate));
+    }
+
+    UnicodeSPrint (
+      PanicLogName,
+      sizeof (PanicLogName),
+      L"panic-%04u-%02u-%02u-%02u%02u%02u.txt",
+      (UINT32) PanicLogDate.Year,
+      (UINT32) PanicLogDate.Month,
+      (UINT32) PanicLogDate.Day,
+      (UINT32) PanicLogDate.Hour,
+      (UINT32) PanicLogDate.Minute,
+      (UINT32) PanicLogDate.Second
+      );
+
+    Status = Storage->FileSystem->OpenVolume (
+      Storage->FileSystem,
+      &RootFs
+      );
+    if (!EFI_ERROR (Status)) {
+      Status = SetFileData (RootFs, PanicLogName, PanicLog, PanicLogSize);
+      RootFs->Close (RootFs);
+    }
+
+    DEBUG ((DEBUG_INFO, "OC: Saving %u byte panic log %s - %r\n", PanicLogSize, PanicLogName, Status));
+    FreePool (PanicLog);
+  } else {
+    DEBUG ((DEBUG_INFO, "OC: Panic log does not exist\n"));
+  }
+}
+
 CONST CHAR8 *
 OcMiscGetVersionString (
   VOID
@@ -391,11 +529,17 @@ OcMiscEarlyInit (
     return EFI_SECURITY_VIOLATION; ///< Should be unreachable.
   }
 
+  DEBUG ((DEBUG_INFO, "OC: Watchdog status is %d\n", Config->Misc.Debug.DisableWatchDog == FALSE));
+
   if (Config->Misc.Debug.DisableWatchDog) {
     //
     // boot.efi kills watchdog only in FV2 UI.
     //
     gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  }
+
+  if (Config->Misc.Debug.SerialInit) {
+    SerialPortInitialize ();
   }
 
   OcConfigureLogProtocol (
@@ -440,37 +584,74 @@ OcMiscEarlyInit (
 }
 
 EFI_STATUS
-OcMiscLateInit (
+OcMiscMiddleInit (
+  IN  OC_STORAGE_CONTEXT        *Storage,
   IN  OC_GLOBAL_CONFIG          *Config,
   IN  EFI_DEVICE_PATH_PROTOCOL  *LoadPath  OPTIONAL,
-  OUT EFI_HANDLE                *LoadHandle OPTIONAL
+  OUT EFI_HANDLE                *LoadHandle
   )
 {
   EFI_STATUS   Status;
-  EFI_STATUS   HibernateStatus;
-  CONST CHAR8  *HibernateMode;
-  UINT32       HibernateMask;
+  CONST CHAR8  *BootProtect;
+  UINT32       BootProtectFlag;
+  EFI_HANDLE   OcHandle;
 
   if ((Config->Misc.Security.ExposeSensitiveData & OCS_EXPOSE_BOOT_PATH) != 0) {
     OcStoreLoadPath (LoadPath);
   }
 
-  Status = EFI_SUCCESS;
-
-  if (LoadHandle != NULL) {
-    *LoadHandle = NULL;
-    //
-    // Do not disclose self entry unless asked.
-    //
-    if (LoadPath != NULL && Config->Misc.Boot.HideSelf) {
-      Status = gBS->LocateDevicePath (
-        &gEfiSimpleFileSystemProtocolGuid,
-        &LoadPath,
-        LoadHandle
-        );
-      DEBUG ((DEBUG_INFO, "OC: LoadHandle is %p - %r\n", *LoadHandle, Status));
-    }
+  OcHandle = NULL;
+  if (LoadPath != NULL) {
+    Status = gBS->LocateDevicePath (
+      &gEfiSimpleFileSystemProtocolGuid,
+      &LoadPath,
+      &OcHandle
+      );
+  } else {
+    Status = EFI_UNSUPPORTED;
   }
+
+  BootProtect = OC_BLOB_GET (&Config->Misc.Security.BootProtect);
+  DEBUG ((DEBUG_INFO, "OC: LoadHandle %p with BootProtect in %a mode - %r\n", OcHandle, BootProtect, Status));
+
+  BootProtectFlag = Config->Uefi.Quirks.RequestBootVarRouting ? OC_BOOT_PROTECT_VARIABLE_NAMESPACE : 0;
+
+  if (OcHandle != NULL && AsciiStrCmp (BootProtect, "Bootstrap") == 0) {
+    OcRegisterBootOption (L"OpenCore", OcHandle, OPEN_CORE_BOOTSTRAP_PATH);
+    BootProtectFlag = OC_BOOT_PROTECT_VARIABLE_BOOTSTRAP;
+  }
+
+  //
+  // Inform about boot protection.
+  //
+  gRT->SetVariable (
+    OC_BOOT_PROTECT_VARIABLE_NAME,
+    &gOcVendorVariableGuid,
+    OPEN_CORE_INT_NVRAM_ATTR,
+    sizeof (BootProtectFlag),
+    &BootProtectFlag
+    );
+
+  *LoadHandle = OcHandle;
+
+  DEBUG_CODE_BEGIN ();
+  if (OcHandle != NULL && Config->Misc.Debug.SysReport) {
+    ProduceDebugReport (OcHandle);
+  }
+  DEBUG_CODE_END ();
+
+  return Status;
+}
+
+EFI_STATUS
+OcMiscLateInit (
+  IN  OC_STORAGE_CONTEXT        *Storage,
+  IN  OC_GLOBAL_CONFIG          *Config
+  )
+{
+  EFI_STATUS   HibernateStatus;
+  CONST CHAR8  *HibernateMode;
+  UINT32       HibernateMask;
 
   HibernateMode = OC_BLOB_GET (&Config->Misc.Boot.HibernateMode);
 
@@ -492,9 +673,13 @@ OcMiscLateInit (
   HibernateStatus = OcActivateHibernateWake (HibernateMask);
   DEBUG ((DEBUG_INFO, "OC: Hibernation detection status is %r\n", HibernateStatus));
 
+  if (Config->Misc.Debug.ApplePanic) {
+    SavePanicLog (Storage);
+  }
+
   OcAppleDebugLogConfigure (Config->Misc.Debug.AppleDebug);
 
-  return Status;
+  return EFI_SUCCESS;
 }
 
 VOID
@@ -504,13 +689,14 @@ OcMiscBoot (
   IN  OC_PRIVILEGE_CONTEXT      *Privilege OPTIONAL,
   IN  OC_IMAGE_START            StartImage,
   IN  BOOLEAN                   CustomBootGuid,
-  IN  EFI_HANDLE                LoadHandle OPTIONAL
+  IN  EFI_HANDLE                LoadHandle
   )
 {
   EFI_STATUS             Status;
   OC_PICKER_CONTEXT      *Context;
   OC_PICKER_CMD          PickerCommand;
   OC_PICKER_MODE         PickerMode;
+  OC_DMG_LOADING_SUPPORT DmgLoading;
   UINTN                  ContextSize;
   UINT32                 Index;
   UINT32                 EntryIndex;
@@ -518,6 +704,9 @@ OcMiscBoot (
   UINTN                  BlessOverrideSize;
   CHAR16                 **BlessOverride;
   CONST CHAR8            *AsciiPicker;
+  CONST CHAR8            *AsciiDmg;
+  CHAR8                  RecoveryBootMode[16];
+  UINTN                  RecoveryBootModeSize;
 
   AsciiPicker = OC_BLOB_GET (&Config->Misc.Boot.PickerMode);
 
@@ -528,8 +717,21 @@ OcMiscBoot (
   } else if (AsciiStrCmp (AsciiPicker, "Apple") == 0) {
     PickerMode = OcPickerModeApple;
   } else {
-    DEBUG ((DEBUG_WARN, "OC: Unknown PickirMode: %a, using builtin\n", AsciiPicker));
+    DEBUG ((DEBUG_WARN, "OC: Unknown PickerMode: %a, using builtin\n", AsciiPicker));
     PickerMode = OcPickerModeBuiltin;
+  }
+
+  AsciiDmg = OC_BLOB_GET (&Config->Misc.Security.DmgLoading);
+
+  if (AsciiStrCmp (AsciiDmg, "Disabled") == 0) {
+    DmgLoading = OcDmgLoadingDisabled;
+  } else if (AsciiStrCmp (AsciiDmg, "Any") == 0) {
+    DmgLoading = OcDmgLoadingAnyImage;
+  } else if (AsciiStrCmp (AsciiDmg, "Signed") == 0) {
+    DmgLoading = OcDmgLoadingAppleSigned;
+  } else {
+    DEBUG ((DEBUG_WARN, "OC: Unknown DmgLoading: %a, using Signed\n", AsciiDmg));
+    DmgLoading = OcDmgLoadingAppleSigned;
   }
 
   //
@@ -619,28 +821,51 @@ OcMiscBoot (
     Context->CustomBootPaths    = BlessOverride;
   }
 
-  Context->ScanPolicy         = Config->Misc.Security.ScanPolicy;
-  Context->LoadPolicy         = OC_LOAD_DEFAULT_POLICY;
-  Context->TimeoutSeconds     = Config->Misc.Boot.Timeout;
-  Context->TakeoffDelay       = Config->Misc.Boot.TakeoffDelay;
-  Context->StartImage         = StartImage;
-  Context->CustomBootGuid     = CustomBootGuid;
-  Context->ExcludeHandle      = LoadHandle;
-  Context->CustomEntryContext = Storage;
-  Context->CustomRead         = OcToolLoadEntry;
-  Context->CustomDescribe     = OcToolDescribeEntry;
-  Context->PrivilegeContext   = Privilege;
-  Context->RequestPrivilege   = OcShowSimplePasswordRequest;
-  Context->ShowMenu           = OcShowSimpleBootMenu;
-  Context->PickerMode         = PickerMode;
-  Context->ConsoleAttributes  = Config->Misc.Boot.ConsoleAttributes;
-  Context->PickerAttributes   = Config->Misc.Boot.PickerAttributes;
+  Context->ScanPolicy            = Config->Misc.Security.ScanPolicy;
+  Context->DmgLoading            = DmgLoading;
+  Context->TimeoutSeconds        = Config->Misc.Boot.Timeout;
+  Context->TakeoffDelay          = Config->Misc.Boot.TakeoffDelay;
+  Context->StartImage            = StartImage;
+  Context->CustomBootGuid        = CustomBootGuid;
+  Context->LoaderHandle          = LoadHandle;
+  Context->CustomEntryContext    = Storage;
+  Context->CustomRead            = OcToolLoadEntry;
+  Context->CustomDescribe        = OcToolDescribeEntry;
+  Context->PrivilegeContext      = Privilege;
+  Context->RequestPrivilege      = OcShowSimplePasswordRequest;
+  Context->ShowMenu              = OcShowSimpleBootMenu;
+  Context->PickerMode            = PickerMode;
+  Context->ConsoleAttributes     = Config->Misc.Boot.ConsoleAttributes;
+  Context->PickerAttributes      = Config->Misc.Boot.PickerAttributes;
 
   if ((Config->Misc.Security.ExposeSensitiveData & OCS_EXPOSE_VERSION_UI) != 0) {
     Context->TitleSuffix      = OcMiscGetVersionString ();
   }
 
-  if (Config->Misc.Boot.ShowPicker) {
+  //
+  // Provide basic support for recovery-boot-mode variable, which is meant
+  // to perform one-time recovery boot. In general BootOrder and BootNext
+  // are set to the recovery path, but this is not the case for secure-boot.
+  // TODO: Maybe there are more to handle.
+  //
+  RecoveryBootModeSize = sizeof (RecoveryBootModeSize);
+  Status = gRT->GetVariable (
+    APPLE_RECOVERY_BOOT_MODE_VARIABLE_NAME,
+    &gAppleBootVariableGuid,
+    NULL,
+    &RecoveryBootModeSize,
+    RecoveryBootMode
+    );
+  if (!EFI_ERROR (Status) && AsciiStrnCmp (RecoveryBootMode, "secure-boot", L_STR_LEN ("secure-boot")) == 0) {
+    gRT->SetVariable (
+      APPLE_RECOVERY_BOOT_MODE_VARIABLE_NAME,
+      &gAppleBootVariableGuid,
+      EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+      0,
+      NULL
+      );
+    PickerCommand = Context->PickerCommand = OcPickerBootAppleRecovery;
+  } else if (Config->Misc.Boot.ShowPicker) {
     PickerCommand = Context->PickerCommand = OcPickerShowPicker;
   } else {
     PickerCommand = Context->PickerCommand = OcPickerDefault;
@@ -690,9 +915,15 @@ OcMiscBoot (
 
   if (Interface != NULL) {
     Status = Interface->ShowInteface (Interface, Storage, Context);
+    DEBUG ((DEBUG_WARN, "OC: External interface failure, fallback to builtin - %r\n", Status));
   } else {
+    Status = EFI_UNSUPPORTED;
+  }
+
+  if (EFI_ERROR (Status)) {
     Status = OcRunBootPicker (Context);
   }
+
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "OC: Failed to show boot menu!\n"));
   }

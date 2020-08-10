@@ -22,6 +22,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/OcAppleKernelLib.h>
 #include <Library/OcCompressionLib.h>
+#include <Library/OcCryptoLib.h>
 #include <Library/OcFileLib.h>
 #include <Library/OcGuardLib.h>
 
@@ -30,8 +31,12 @@
 //
 #define KERNEL_HEADER_SIZE (EFI_PAGE_SIZE*2)
 
+STATIC SHA384_CONTEXT mKernelDigestContext;
+STATIC UINT32         mKernelDigestPosition;
+STATIC BOOLEAN        mNeedKernelDigest;
+
 STATIC
-RETURN_STATUS
+EFI_STATUS
 ReplaceBuffer (
   IN     UINT32  TargetSize,
   IN OUT UINT8   **Buffer,
@@ -42,23 +47,87 @@ ReplaceBuffer (
   UINT8  *TmpBuffer;
 
   if (OcOverflowAddU32 (TargetSize, ReservedSize, &TargetSize)) {
-    return RETURN_INVALID_PARAMETER;
+    return EFI_INVALID_PARAMETER;
   }
 
   if (*AllocatedSize >= TargetSize) {
-    return RETURN_SUCCESS;
+    return EFI_SUCCESS;
   }
 
   TmpBuffer = AllocatePool (TargetSize);
   if (TmpBuffer == NULL) {
-    return RETURN_OUT_OF_RESOURCES;
+    return EFI_OUT_OF_RESOURCES;
   }
 
   FreePool (*Buffer);
   *Buffer = TmpBuffer;
   *AllocatedSize = TargetSize;
 
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+KernelGetFileData (
+  IN  EFI_FILE_PROTOCOL  *File,
+  IN  UINT32             Position,
+  IN  UINT32             Size,
+  OUT UINT8              *Buffer
+  )
+{
+  EFI_STATUS  Status;
+  UINT32      RemainingSize;
+  UINT32      ChunkSize;
+
+  //
+  // Calculate hash for the prefix.
+  //
+  if (mNeedKernelDigest && Position > mKernelDigestPosition) {
+    RemainingSize = Position - mKernelDigestPosition;
+
+    while (RemainingSize > 0) {
+      ChunkSize = MIN (RemainingSize, Size);
+      Status = GetFileData (
+        File,
+        mKernelDigestPosition,
+        ChunkSize,
+        Buffer
+        );
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+
+      Sha384Update (&mKernelDigestContext, Buffer, ChunkSize);
+      mKernelDigestPosition += ChunkSize;
+      RemainingSize -= ChunkSize;
+    }
+  }
+
+  Status = GetFileData (
+    File,
+    Position,
+    Size,
+    Buffer
+    );
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  //
+  // Calculate hash for the suffix.
+  //
+  if (mNeedKernelDigest && Position >= mKernelDigestPosition) {
+    RemainingSize = Position + Size - mKernelDigestPosition;
+    Sha384Update (
+      &mKernelDigestContext,
+      Buffer + (Position - mKernelDigestPosition),
+      RemainingSize
+      );
+    mKernelDigestPosition += RemainingSize;
+  }
+
+  return Status;
 }
 
 STATIC
@@ -85,7 +154,7 @@ ParseFatArchitecture (
 
   if (OcOverflowMulAddU32 (NumberOfFatArch, sizeof (MACH_FAT_ARCH), sizeof (MACH_FAT_HEADER), &TmpSize)
     || TmpSize > KERNEL_HEADER_SIZE) {
-    DEBUG ((DEBUG_INFO, "Fat kernel invalid arch count %u\n", NumberOfFatArch));
+    DEBUG ((DEBUG_INFO, "OCAK: Fat kernel invalid arch count %u\n", NumberOfFatArch));
     return 0;
   }
 
@@ -106,12 +175,12 @@ ParseFatArchitecture (
       }
 
       if (*Offset == 0) {
-        DEBUG ((DEBUG_INFO, "Fat kernel has 0 offset\n"));
+        DEBUG ((DEBUG_INFO, "OCAK: Fat kernel has 0 offset\n"));
         return 0;
       }
 
       if (OcOverflowAddU32 (*Offset, Size, &TmpSize)) {
-        DEBUG ((DEBUG_INFO, "Fat kernel invalid size %u\n", Size));
+        DEBUG ((DEBUG_INFO, "OCAK: Fat kernel invalid size %u\n", Size));
         return 0;
       }
 
@@ -119,7 +188,7 @@ ParseFatArchitecture (
     }
   }
 
-  DEBUG ((DEBUG_INFO, "Fat kernel has no x86_64 arch\n"));
+  DEBUG ((DEBUG_INFO, "OCAK: Fat kernel has no x86_64 arch\n"));
   return 0;
 }
 
@@ -133,7 +202,7 @@ ParseCompressedHeader (
   IN     UINT32             ReservedSize
   )
 {
-  RETURN_STATUS       Status;
+  EFI_STATUS        Status;
 
   UINT32            KernelSize;
   MACH_COMP_HEADER  *CompHeader;
@@ -155,25 +224,25 @@ ParseCompressedHeader (
     || CompressedSize == 0
     || DecompressedSize > OC_COMPRESSION_MAX_LENGTH
     || DecompressedSize < KERNEL_HEADER_SIZE) {
-    DEBUG ((DEBUG_INFO, "Comp kernel invalid comp %u or decomp %u at %08X\n", CompressedSize, DecompressedSize, Offset));
+    DEBUG ((DEBUG_INFO, "OCAK: Comp kernel invalid comp %u or decomp %u at %08X\n", CompressedSize, DecompressedSize, Offset));
     return KernelSize;
   }
 
   Status = ReplaceBuffer (DecompressedSize, Buffer, AllocatedSize, ReservedSize);
-  if (RETURN_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "Decomp kernel (%u bytes) cannot be allocated at %08X\n", DecompressedSize, Offset));
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OCAK: Decomp kernel (%u bytes) cannot be allocated at %08X\n", DecompressedSize, Offset));
     return KernelSize;
   }
 
   CompressedBuffer = AllocatePool (CompressedSize);
   if (CompressedBuffer == NULL) {
-    DEBUG ((DEBUG_INFO, "Comp kernel (%u bytes) cannot be allocated at %08X\n", CompressedSize, Offset));
+    DEBUG ((DEBUG_INFO, "OCAK: Comp kernel (%u bytes) cannot be allocated at %08X\n", CompressedSize, Offset));
     return KernelSize;
   }
 
-  Status = GetFileData (File, Offset + sizeof (MACH_COMP_HEADER), CompressedSize, CompressedBuffer);
-  if (RETURN_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "Comp kernel (%u bytes) cannot be read at %08X\n", CompressedSize, Offset));
+  Status = KernelGetFileData (File, Offset + sizeof (MACH_COMP_HEADER), CompressedSize, CompressedBuffer);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OCAK: Comp kernel (%u bytes) cannot be read at %08X\n", CompressedSize, Offset));
     FreePool (CompressedBuffer);
     return KernelSize;
   }
@@ -199,7 +268,7 @@ ParseCompressedHeader (
 }
 
 STATIC
-RETURN_STATUS
+EFI_STATUS
 ReadAppleKernelImage (
   IN     EFI_FILE_PROTOCOL  *File,
   IN OUT UINT8              **Buffer,
@@ -209,13 +278,13 @@ ReadAppleKernelImage (
   IN     UINT32             Offset
   )
 {
-  RETURN_STATUS        Status;
+  EFI_STATUS        Status;
   UINT32            *MagicPtr;
   BOOLEAN           ForbidFat;
   BOOLEAN           Compressed;
 
-  Status = GetFileData (File, Offset, KERNEL_HEADER_SIZE, *Buffer);
-  if (RETURN_ERROR (Status)) {
+  Status = KernelGetFileData (File, Offset, KERNEL_HEADER_SIZE, *Buffer);
+  if (EFI_ERROR (Status)) {
     return Status;
   }
 
@@ -227,20 +296,20 @@ ReadAppleKernelImage (
 
   while (TRUE) {
     if (!OC_TYPE_ALIGNED (UINT32 , *Buffer)) {
-      DEBUG ((DEBUG_INFO, "Misaligned kernel header %p at %08X\n", *Buffer, Offset));
-      return RETURN_INVALID_PARAMETER;
+      DEBUG ((DEBUG_INFO, "OCAK: Misaligned kernel header %p at %08X\n", *Buffer, Offset));
+      return EFI_INVALID_PARAMETER;
     }
     MagicPtr = (UINT32 *)* Buffer;
 
     switch (*MagicPtr) {
       case MACH_HEADER_64_SIGNATURE:
-        DEBUG ((DEBUG_VERBOSE, "Found Mach-O compressed %d offset %u size %u\n", Compressed, Offset, *KernelSize));
+        DEBUG ((DEBUG_VERBOSE, "OCAK: Found Mach-O compressed %d offset %u size %u\n", Compressed, Offset, *KernelSize));
 
         //
         // This is just a valid (formerly) compressed image.
         //
         if (Compressed) {
-          return RETURN_SUCCESS;
+          return EFI_SUCCESS;
         }
 
         //
@@ -252,23 +321,23 @@ ReadAppleKernelImage (
           // Figure out size for a non fat image.
           //
           Status = GetFileSize (File, KernelSize);
-          if (RETURN_ERROR (Status)) {
-            DEBUG ((DEBUG_INFO, "Kernel size cannot be determined - %r\n", Status));
-            return RETURN_OUT_OF_RESOURCES;
+          if (EFI_ERROR (Status)) {
+            DEBUG ((DEBUG_INFO, "OCAK: Kernel size cannot be determined - %r\n", Status));
+            return EFI_OUT_OF_RESOURCES;
           }
 
-          DEBUG ((DEBUG_VERBOSE, "Determined kernel size is %u bytes\n", *KernelSize));
+          DEBUG ((DEBUG_VERBOSE, "OCAK: Determined kernel size is %u bytes\n", *KernelSize));
         }
 
         Status = ReplaceBuffer (*KernelSize, Buffer, AllocatedSize, ReservedSize);
-        if (RETURN_ERROR (Status)) {
-          DEBUG ((DEBUG_INFO, "Kernel (%u bytes) cannot be allocated at %08X\n", *KernelSize, Offset));
+        if (EFI_ERROR (Status)) {
+          DEBUG ((DEBUG_INFO, "OCAK: Kernel (%u bytes) cannot be allocated at %08X\n", *KernelSize, Offset));
           return Status;
         }
 
-        Status = GetFileData (File, Offset, *KernelSize, *Buffer);
-        if (RETURN_ERROR (Status)) {
-          DEBUG ((DEBUG_INFO, "Kernel (%u bytes) cannot be read at %08X\n", *KernelSize, Offset));
+        Status = KernelGetFileData (File, Offset, *KernelSize, *Buffer);
+        if (EFI_ERROR (Status)) {
+          DEBUG ((DEBUG_INFO, "OCAK: Kernel (%u bytes) cannot be read at %08X\n", *KernelSize, Offset));
         }
 
         return Status;
@@ -277,20 +346,20 @@ ReadAppleKernelImage (
       {
         if (ForbidFat) {
           DEBUG ((DEBUG_INFO, "Fat kernel recursion %p at %08X\n", MagicPtr, Offset));
-          return RETURN_INVALID_PARAMETER;
+          return EFI_INVALID_PARAMETER;
         }
 
         *KernelSize = ParseFatArchitecture (Buffer, &Offset);
         if (*KernelSize != 0) {
           return ReadAppleKernelImage (File, Buffer, KernelSize, AllocatedSize, ReservedSize, Offset);
         }
-        return RETURN_INVALID_PARAMETER;
+        return EFI_INVALID_PARAMETER;
       }
       case MACH_COMPRESSED_BINARY_INVERT_SIGNATURE:
       {
         if (Compressed) {
           DEBUG ((DEBUG_INFO, "Compression recursion %p at %08X\n", MagicPtr, Offset));
-          return RETURN_INVALID_PARAMETER;
+          return EFI_INVALID_PARAMETER;
         }
 
         //
@@ -303,35 +372,44 @@ ReadAppleKernelImage (
         //
         *KernelSize = ParseCompressedHeader (File, Buffer, Offset, AllocatedSize, ReservedSize);
         if (*KernelSize != 0) {
-          DEBUG ((DEBUG_VERBOSE, "Compressed result has %08X magic\n", *(UINT32 *) Buffer));
+          DEBUG ((DEBUG_VERBOSE, "OCAK: Compressed result has %08X magic\n", *(UINT32 *) Buffer));
           continue;
         }
-        return RETURN_INVALID_PARAMETER;
+        return EFI_INVALID_PARAMETER;
       }
       default:
-        DEBUG ((Offset > 0 ? DEBUG_INFO : DEBUG_VERBOSE, "Invalid kernel magic %08X at %08X\n", *MagicPtr, Offset));
-        return RETURN_INVALID_PARAMETER;
+        DEBUG ((Offset > 0 ? DEBUG_INFO : DEBUG_VERBOSE, "OCAK: Invalid kernel magic %08X at %08X\n", *MagicPtr, Offset));
+        return EFI_INVALID_PARAMETER;
     }
   }
 }
 
-RETURN_STATUS
+EFI_STATUS
 ReadAppleKernel (
   IN     EFI_FILE_PROTOCOL  *File,
      OUT UINT8              **Kernel,
      OUT UINT32             *KernelSize,
      OUT UINT32             *AllocatedSize,
-  IN     UINT32             ReservedSize
+  IN     UINT32             ReservedSize,
+     OUT UINT8              *Digest  OPTIONAL
   )
 {
-  RETURN_STATUS  Status;
+  EFI_STATUS  Status;
+  UINT32      FullSize;
+  UINT8       *Remainder;
 
   *KernelSize    = 0;
   *AllocatedSize = KERNEL_HEADER_SIZE;
   *Kernel        = AllocatePool (*AllocatedSize);
 
   if (*Kernel == NULL) {
-    return RETURN_INVALID_PARAMETER;
+    return EFI_INVALID_PARAMETER;
+  }
+
+  mNeedKernelDigest = Digest != NULL;
+  if (mNeedKernelDigest) {
+    mKernelDigestPosition = 0;
+    Sha384Init (&mKernelDigestContext);
   }
 
   Status = ReadAppleKernelImage (
@@ -343,9 +421,43 @@ ReadAppleKernel (
     0
     );
 
-  if (RETURN_ERROR (Status)) {
+  if (EFI_ERROR (Status)) {
     FreePool (*Kernel);
+    mNeedKernelDigest = FALSE;
+    return Status;
   }
 
-  return Status;
+  if (mNeedKernelDigest) {
+    Status = GetFileSize (File, &FullSize);
+    if (EFI_ERROR (Status)) {
+      mNeedKernelDigest = FALSE;
+      return Status;
+    }
+
+    if (FullSize > mKernelDigestPosition) {
+      Remainder = AllocatePool (FullSize - mKernelDigestPosition);
+      if (Remainder == NULL) {
+        mNeedKernelDigest = FALSE;
+        return EFI_OUT_OF_RESOURCES;
+      }
+
+      Status = KernelGetFileData (
+        File,
+        mKernelDigestPosition,
+        FullSize - mKernelDigestPosition,
+        Remainder
+        );
+      mNeedKernelDigest = FALSE;
+      FreePool (Remainder);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+
+      ASSERT (FullSize == mKernelDigestPosition);
+    }
+
+    Sha384Final (&mKernelDigestContext, Digest);
+  }
+
+  return EFI_SUCCESS;
 }

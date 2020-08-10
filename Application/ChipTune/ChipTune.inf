@@ -35,12 +35,10 @@
   ChipTune.c
 
 [Protocols]
-  gEfiShellParametersProtocolGuid
   gAppleHighDefinitionAudioProtocolGuid
   gAppleBeepGenProtocolGuid
 
 [Packages]
-  EfiPkg/EfiPkg.dec
   MdePkg/MdePkg.dec
   OpenCorePkg/OpenCorePkg.dec
 

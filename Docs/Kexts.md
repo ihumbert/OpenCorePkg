@@ -35,6 +35,7 @@ Kexts
 - [VoodooPS2Controller.kext](https://github.com/acidanthera/VoodooPS2)
 - [VoodooInput.kext](https://github.com/acidanthera/VoodooInput)
 - [VoodooSMBus.kext](https://github.com/leo-labs/VoodooSMBus)
+- [VoodooRMI.kext](https://github.com/VoodooSMBus/VoodooRMI)
 - [AlpsT4USB.kext](https://github.com/blankmac/AlpsT4USB)
 
 ## Video and audio
@@ -51,12 +52,14 @@ Kexts
 
 ## CPU and SMC
 
+- [AAAMouSSE.kext](https://forums.macrumors.com/threads/mp3-1-others-sse-4-2-emulation-to-enable-amd-metal-driver.2206682/)
 - [AppleMCEReporterDisabler.kext](https://github.com/acidanthera/bugtracker/issues/424#issuecomment-535624313)
 - [AsusSMC.kext](https://github.com/hieplpvip/AsusSMC)
 - [CPUFriend.kext](https://github.com/acidanthera/CPUFriend)
 - [FakeSMC.kext and sensors](https://github.com/CloverHackyColor/FakeSMC3_with_plugins)
 - [HWPEnabler.kext](https://github.com/headkaze/HWPEnable)
 - [OpcodeEmulator.kext](https://www.insanelymac.com/forum/topic/329704-opcode-emulator-opemu-plug-in-project/)
+- [telemetrap.kext](https://forums.macrumors.com/posts/28447707)
 - [TSCAdjustReset.kext](https://github.com/interferenc/TSCAdjustReset)
 - [VirtualSMC.kext and sensors](https://github.com/acidanthera/VirtualSMC)
 - [VoodooTSCSync.kext](https://github.com/RehabMan/VoodooTSCSync)

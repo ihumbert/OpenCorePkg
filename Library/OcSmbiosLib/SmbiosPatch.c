@@ -16,7 +16,7 @@
 
 #include <Protocol/PciRootBridgeIo.h>
 
-#include <Guid/OcVariables.h>
+#include <Guid/OcVariable.h>
 #include <Guid/SmBios.h>
 
 #include <Library/BaseMemoryLib.h>
@@ -39,7 +39,7 @@
 #include "DebugSmbios.h"
 #include "SmbiosInternal.h"
 
-#include <ProcessorInfo.h>
+#include <IndustryStandard/ProcessorInfo.h>
 
 STATIC SMBIOS_TABLE_ENTRY_POINT        *mOriginalSmbios;
 STATIC SMBIOS_TABLE_3_0_ENTRY_POINT    *mOriginalSmbios3;

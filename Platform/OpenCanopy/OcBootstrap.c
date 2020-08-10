@@ -15,6 +15,8 @@
 
 #include <Library/UefiLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/OcBootManagementLib.h>
+#include <Library/OcConsoleLib.h>
 #include <Library/OcDebugLogLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -29,54 +31,90 @@
 #include "GuiApp.h"
 
 extern BOOT_PICKER_GUI_CONTEXT mGuiContext;
+extern CONST GUI_IMAGE         mBackgroundImage;
 
 STATIC
 GUI_DRAWING_CONTEXT
 mDrawContext;
 
 EFI_STATUS
+EFIAPI
 OcShowMenuByOc (
-  IN     OC_PICKER_CONTEXT        *Context,
-  IN     OC_BOOT_ENTRY            *BootEntries,
-  IN     UINTN                    Count,
-  IN     UINTN                    DefaultEntry,
+  IN     OC_BOOT_CONTEXT          *BootContext,
+  IN     OC_BOOT_ENTRY            **BootEntries,
   OUT    OC_BOOT_ENTRY            **ChosenBootEntry
   )
 {
-  RETURN_STATUS Status;
+  EFI_STATUS    Status;
   UINTN         Index;
 
   *ChosenBootEntry = NULL;
   mGuiContext.BootEntry = NULL;
-  mGuiContext.HideAuxiliary = Context->HideAuxiliary;
+  mGuiContext.HideAuxiliary = BootContext->PickerContext->HideAuxiliary;
   mGuiContext.Refresh = FALSE;
 
-  BootPickerEntriesEmpty ();
+  Status = GuiLibConstruct (
+    BootContext->PickerContext,
+    mGuiContext.CursorDefaultX,
+    mGuiContext.CursorDefaultY
+    );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
-  for (Index = 0; Index < Count; ++Index) {
+  //
+  // Extension for OpenCore builtin renderer to mark that we control text output here.
+  //
+  gST->ConOut->TestString (gST->ConOut, OC_CONSOLE_MARK_CONTROLLED);
+
+  Status = BootPickerViewInitialize (
+    &mDrawContext,
+    &mGuiContext,
+    InternalGetCursorImage
+    );
+  if (EFI_ERROR (Status)) {
+    GuiLibDestruct ();
+    return Status;
+  }
+
+  for (Index = 0; Index < BootContext->BootEntryCount; ++Index) {
     Status = BootPickerEntriesAdd (
-               Context,
-               &mGuiContext,
-               &BootEntries[Index],
-               Index == DefaultEntry
-               );
-    if (RETURN_ERROR (Status)) {
+      BootContext->PickerContext,
+      &mGuiContext,
+      BootEntries[Index],
+      Index == BootContext->DefaultEntry->EntryIndex - 1
+      );
+    if (EFI_ERROR (Status)) {
+      GuiLibDestruct ();
       return Status;
     }
   }
 
-  GuiDrawLoop (&mDrawContext);
+  GuiDrawLoop (&mDrawContext, BootContext->PickerContext->TimeoutSeconds);
   ASSERT (mGuiContext.BootEntry != NULL || mGuiContext.Refresh);
 
+  //
+  // Note, it is important to destruct GUI here, as we must ensure
+  // that keyboard/mouse polling does not conflict with FV2 ui.
+  //
+  GuiClearScreen (&mDrawContext, mBackgroundImage.Buffer);
+  BootPickerViewDeinitialize (&mDrawContext, &mGuiContext);
+  GuiLibDestruct ();
+
+  //
+  // Extension for OpenCore builtin renderer to mark that we no longer control text output here.
+  //
+  gST->ConOut->TestString (gST->ConOut, OC_CONSOLE_MARK_UNCONTROLLED);
+
   *ChosenBootEntry = mGuiContext.BootEntry;
-  Context->HideAuxiliary = mGuiContext.HideAuxiliary;
+  BootContext->PickerContext->HideAuxiliary = mGuiContext.HideAuxiliary;
   if (mGuiContext.Refresh) {
-    return RETURN_ABORTED;
+    return EFI_ABORTED;
   }
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
-RETURN_STATUS
+EFI_STATUS
 InternalContextConstruct (
   OUT BOOT_PICKER_GUI_CONTEXT  *Context,
   IN  OC_STORAGE_CONTEXT       *Storage,
@@ -102,21 +140,10 @@ GuiOcInterfaceRun (
 {
   EFI_STATUS Status;
 
-  Status = GuiLibConstruct (0, 0);
-  if (RETURN_ERROR (Status)) {
-    return Status;
-  }
-
   Status = InternalContextConstruct (&mGuiContext, Storage, Context);
-  if (RETURN_ERROR (Status)) {
+  if (EFI_ERROR (Status)) {
     return Status;
   }
-
-  Status = BootPickerViewInitialize (
-    &mDrawContext,
-    &mGuiContext,
-    InternalGetCursorImage
-    );
 
   Context->ShowMenu = OcShowMenuByOc;
 
@@ -149,7 +176,7 @@ UefiMain (
     );
 
   if (!EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "OCUI: Another GUI is already present\n"));
+    DEBUG ((DEBUG_WARN, "OCUI: Another GUI is already present\n"));
     return EFI_ALREADY_STARTED;
   }
 
@@ -167,7 +194,7 @@ UefiMain (
   if (!EFI_ERROR (Status)) {
     DEBUG ((DEBUG_INFO, "OCUI: Registered custom GUI protocol\n"));
   } else {
-    DEBUG ((DEBUG_ERROR, "OCUI: Failed to install GUI protocol - %r\n", Status));
+    DEBUG ((DEBUG_WARN, "OCUI: Failed to install GUI protocol - %r\n", Status));
   }
 
   return Status;

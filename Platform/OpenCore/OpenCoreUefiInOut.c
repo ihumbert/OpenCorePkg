@@ -14,7 +14,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 #include <OpenCore.h>
 
-#include <Guid/OcVariables.h>
+#include <Guid/OcVariable.h>
 #include <Guid/GlobalVariable.h>
 
 #include <Library/BaseLib.h>
@@ -176,7 +176,7 @@ OcLoadUefiInputSupport (
   if (ExitBs) {
     gBS->CreateEvent (
       EVT_SIGNAL_EXIT_BOOT_SERVICES,
-      TPL_NOTIFY,
+      TPL_CALLBACK,
       OcExitBootServicesInputHandler,
       Config,
       &Event
@@ -191,7 +191,6 @@ OcLoadUefiOutputSupport (
 {
   EFI_STATUS           Status;
   CONST CHAR8          *AsciiRenderer;
-  CONST CHAR8          *AsciiCacheMode;
   OC_CONSOLE_RENDERER  Renderer;
   UINT32               Width;
   UINT32               Height;
@@ -227,7 +226,7 @@ OcLoadUefiOutputSupport (
       Bpp
       );
     DEBUG ((
-      EFI_ERROR (Status) ? DEBUG_WARN : DEBUG_INFO,
+      EFI_ERROR (Status) && Status != EFI_ALREADY_STARTED ? DEBUG_WARN : DEBUG_INFO,
       "OC: Changed resolution to %ux%u@%u (max: %d) from %a - %r\n",
       Width,
       Height,
@@ -236,27 +235,20 @@ OcLoadUefiOutputSupport (
       OC_BLOB_GET (&Config->Uefi.Output.Resolution),
       Status
       ));
+  } else {
+    Status = EFI_UNSUPPORTED;
   }
 
   if (Config->Uefi.Output.DirectGopRendering) {
-    AsciiCacheMode = OC_BLOB_GET (&Config->Uefi.Output.DirectGopCacheMode);
-
-    if (AsciiCacheMode[0] == '\0') {
-      OcUseDirectGop (-1);
-    } else if (AsciiStrCmp (AsciiCacheMode, "Uncacheable") == 0) {
-      OcUseDirectGop (CacheUncacheable);
-    } else if (AsciiStrCmp (AsciiCacheMode, "WriteCombining") == 0) {
-      OcUseDirectGop (CacheWriteCombining);
-    } else if (AsciiStrCmp (AsciiCacheMode, "WriteThrough") == 0) {
-      OcUseDirectGop (CacheWriteThrough);
-    } else {
-      DEBUG ((DEBUG_WARN, "OC: Requested unknown cache mode %a\n", AsciiCacheMode));
-      OcUseDirectGop (-1);
-    }
+    OcUseDirectGop (-1);
   }
 
-  if (Config->Uefi.Output.ReconnectOnResChange) {
+  if (Config->Uefi.Output.ReconnectOnResChange && !EFI_ERROR (Status)) {
     OcReconnectConsole ();
+  }
+
+  if (Config->Uefi.Output.UgaPassThrough) {
+    OcProvideUgaPassThrough ();
   }
 
   AsciiRenderer = OC_BLOB_GET (&Config->Uefi.Output.TextRenderer);

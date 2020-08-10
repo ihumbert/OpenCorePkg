@@ -11,6 +11,7 @@ OpenCore bootloader with development SDK.
 - [Hackintosh-Forum.de](https://www.hackintosh-forum.de/forum/thread/42353-opencore-bootloader) in German
 - [InsanelyMac.com](https://www.insanelymac.com/forum/topic/338527-opencore-development/) in English
 - [MacRumors.com](https://forums.macrumors.com/threads/opencore-on-the-mac-pro.2207814/) in English, legacy Apple hardware
+- [KVM-OpenCore](https://github.com/Leoyzen/KVM-Opencore) in English, KVM configuration
 - [macOS86.it](https://www.macos86.it/showthread.php?4570-OpenCore-aka-OC-Nuovo-BootLoader) in Italian
 - [PCbeta.com](http://bbs.pcbeta.com/viewthread-1815623-1-1.html) in Chinese
 
@@ -48,14 +49,17 @@ The use of UBSan runtime requires the use of Clang compiler and `-fsanitize=unde
 [Clang documentation](https://releases.llvm.org/7.0.0/tools/clang/docs/UndefinedBehaviorSanitizer.html) for more
 details.
 
-## Credits
+#### Credits
 
 - The HermitCrabs Lab
 - All projects providing third-party code (refer to file headers)
+- [AppleLife](https://applelife.ru) team and user-contributed resources
+- Chameleon and Clover teams for hints and legacy
 - [al3xtjames](https://github.com/al3xtjames)
 - [Andrey1970AppleLife](https://github.com/Andrey1970AppleLife)
 - [Download-Fritz](https://github.com/Download-Fritz)
 - [Goldfish64](https://github.com/Goldfish64)
+- [nms42](https://github.com/nms42)
 - [PMHeart](https://github.com/PMHeart)
 - [savvamitrofanov](https://github.com/savvamitrofanov)
 - [vit9696](https://github.com/vit9696)

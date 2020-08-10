@@ -30,7 +30,7 @@
 #if defined(MDE_CPU_X64)
 #include "X64/ContextSwitch.h"
 #elif defined(MDE_CPU_IA32)
-#include <IA32/ContextSwitch.h>
+#include <Ia32/ContextSwitch.h>
 #else
 #error "Unsupported architecture!"
 #endif
@@ -256,6 +256,10 @@ typedef struct KERNEL_SUPPORT_STATE_ {
   ///
   UINTN                    SysTableRtAreaSize;
   ///
+  /// Physical configuration table location.
+  ///
+  EFI_CONFIGURATION_TABLE  *ConfigurationTable;
+  ///
   /// Virtual memory mapper context.
   ///
   OC_VMEM_CONTEXT          VmContext;
@@ -299,6 +303,10 @@ typedef struct SLIDE_SUPPORT_STATE_ {
   /// Read or assumed csr-arctive-config variable value.
   ///
   UINT32                   CsrActiveConfig;
+  ///
+  /// Max slide value provided.
+  ///
+  UINT8                    ProvideMaxSlide;
   ///
   /// Valid slides to choose from when using custom slide.
   ///

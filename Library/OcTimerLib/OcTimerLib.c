@@ -234,13 +234,10 @@ GetTimeInNanoSecond (
 /**
   The constructor function caches PerformanceCounterFrequency.
 
-  @param  ImageHandle   The firmware allocated handle for the EFI image.
-  @param  SystemTable   A pointer to the EFI System Table.
-
   @retval EFI_SUCCESS   The constructor always returns RETURN_SUCCESS.
 
 **/
-RETURN_STATUS
+EFI_STATUS
 EFIAPI
 OcTimerLibConstructor (
   VOID

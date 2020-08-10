@@ -45,6 +45,7 @@ OcParseBootArgs (
 
     Arguments->DeviceTreeP = &BA1->deviceTreeP;
     Arguments->DeviceTreeLength = &BA1->deviceTreeLength;
+    Arguments->SystemTable = (EFI_SYSTEM_TABLE*)(UINTN) BA1->efiSystemTable;
   } else {
     //
     // Lion and newer
@@ -58,6 +59,7 @@ OcParseBootArgs (
 
     Arguments->DeviceTreeP = &BA2->deviceTreeP;
     Arguments->DeviceTreeLength = &BA2->deviceTreeLength;
+    Arguments->SystemTable = (EFI_SYSTEM_TABLE*)(UINTN) BA2->efiSystemTable;
 
     if (BA2->flags & kBootArgsFlagCSRActiveConfig) {
       Arguments->CsrActiveConfig = &BA2->csrActiveConfig;
@@ -159,7 +161,7 @@ OcAppendArgumentToCmd (
   // Account for extra space.
   //
   if (Len + (Len > 0 ? 1 : 0) + ArgumentLength >= BOOT_LINE_LENGTH) {
-    DEBUG ((DEBUG_INFO, "OCBM: boot-args are invalid, ignoring\n"));
+    DEBUG ((DEBUG_INFO, "OCB: boot-args are invalid, ignoring\n"));
     return FALSE;
   }
 

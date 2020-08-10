@@ -18,7 +18,7 @@
 #include <Library/BaseLib.h>
 #include <Library/OcCpuLib.h>
 #include <Library/OcStringLib.h>
-#include <ProcessorInfo.h>
+#include <IndustryStandard/ProcessorInfo.h>
 
 #include "OcCpuInternals.h"
 
@@ -119,7 +119,8 @@ UINT16
 InternalDetectAppleProcessorType (
   IN UINT8  Model,
   IN UINT8  Stepping,
-  IN UINT8  AppleMajorType
+  IN UINT8  AppleMajorType,
+  IN UINT16 CoreCount
   )
 {
   switch (Model) {
@@ -170,7 +171,9 @@ InternalDetectAppleProcessorType (
         // MB21 (unknown), MB31 (T7500), MB41 (T8300), MB51 (P8600), MB52 (P7450), MB61 (P7550), MB71 (P8600)
         return AppleProcessorTypeCore2DuoType1; // 0x0301
       }
-      if (AppleMajorType == AppleProcessorMajorXeonPenryn) {
+      if (AppleMajorType == AppleProcessorMajorXeonPenryn
+        || AppleMajorType == AppleProcessorMajorXeonE5
+        || AppleMajorType == AppleProcessorMajorXeonNehalem) {
         // MP21 (2x X5365), MP31 (2x E5462) - 0x0402
         // FIXME: check when 0x0401 will be used.
         return AppleProcessorTypeXeonPenrynType2; // 0x0402
@@ -442,8 +445,17 @@ InternalDetectAppleProcessorType (
     case CPU_MODEL_SKYLAKE:     // 0x4E
     case CPU_MODEL_SKYLAKE_DT:  // 0x5E
     case CPU_MODEL_SKYLAKE_W:   // 0x55, also SKL-X and SKL-SP
-      if (AppleMajorType == AppleProcessorMajorXeonW) {
+      if (AppleMajorType == AppleProcessorMajorXeonNehalem) { // see TODO below
+        // for Skylake E3 (there's no E5/E7 on Skylake), not used by Apple
+        // NOTE: Xeon E3 is not used by Apple at all and should be somehow treated as i7,
+        //       but here we'd like to show Xeon in "About This Mac".
+        // TODO: CPU major type check for Skylake based Xeon E3
+        return AppleProcessorTypeXeon;        // 0x0501
+      }
+      if (AppleMajorType == AppleProcessorMajorXeonW || CoreCount > 10) {
         // IMP11 (Xeon W 2140B)
+        // This will also get applied for i9 CPUs containing too many cores
+        // that are otherwise marked as unknown.
         return AppleProcessorTypeXeonW;       // 0x0F01
       }
       if (AppleMajorType == AppleProcessorMajorM3) {
@@ -481,13 +493,6 @@ InternalDetectAppleProcessorType (
         // NOTE: using a mostly invalid value 0x1005 for now...
         return AppleProcessorTypeCorei9Type5; // 0x1005
       }
-      if (AppleMajorType == AppleProcessorMajorXeonNehalem) { // see TODO below
-        // for Skylake E3 (there's no E5/E7 on Skylake), not used by Apple
-        // NOTE: Xeon E3 is not used by Apple at all and should be somehow treated as i7,
-        //       but here we'd like to show Xeon in "About This Mac".
-        // TODO: CPU major type check for Skylake based Xeon E3
-        return AppleProcessorTypeXeon;        // 0x0501
-      }
       // here stands for Pentium and Celeron (Skylake), not used by Apple at all.
       // putting 0x0905 (i3) as lowest.
       return AppleProcessorTypeCorei3Type5; // 0x0905
@@ -509,6 +514,11 @@ InternalDetectAppleProcessorType (
     //
     case CPU_MODEL_KABYLAKE:       // 0x8E
     case CPU_MODEL_COFFEELAKE:     // 0x9E
+    case CPU_MODEL_COMETLAKE_S:    // 0xA5 FIXME - unknown, for now
+    case CPU_MODEL_COMETLAKE_U:    // 0xA6 FIXME - unknown, for now
+    case CPU_MODEL_ICELAKE_Y:      // 0x7D FIXME - unknown, for now
+    case CPU_MODEL_ICELAKE_U:      // 0x7E FIXME - unknown, for now
+    case CPU_MODEL_ICELAKE_SP:     // 0x9F FIXME - unknown, for now
       if (AppleMajorType == AppleProcessorMajorM3) {
         // MB101 (m3 7Y32)
         return AppleProcessorTypeCoreM3Type7; // 0x0C07

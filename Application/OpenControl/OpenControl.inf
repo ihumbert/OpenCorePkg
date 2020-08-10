@@ -35,11 +35,9 @@
   OpenControl.c
 
 [Protocols]
-  gEfiShellParametersProtocolGuid
   gOcFirmwareRuntimeProtocolGuid
 
 [Packages]
-  EfiPkg/EfiPkg.dec
   MdePkg/MdePkg.dec
   OpenCorePkg/OpenCorePkg.dec
 
@@ -47,6 +45,7 @@
   BaseLib
   BaseMemoryLib
   OcConsoleControlEntryModeGenericLib
+  OcMiscLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib

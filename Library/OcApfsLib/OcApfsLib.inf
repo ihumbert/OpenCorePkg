@@ -40,7 +40,6 @@
 [Packages]
   OpenCorePkg/OpenCorePkg.dec
   MdePkg/MdePkg.dec
-  EfiPkg/EfiPkg.dec
 
 [Guids]
   gAppleApfsPartitionTypeGuid                     ## GUID CONSUMES
@@ -58,6 +57,7 @@
   DebugLib
   OcAppleImageVerificationLib
   OcConsoleLib
+  OcDriverConnectionLib
   OcGuardLib
   OcMiscLib
   MemoryAllocationLib

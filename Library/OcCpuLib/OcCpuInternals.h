@@ -19,7 +19,16 @@
 // Tolerance within which we consider two frequency values to be roughly
 // equivalent.
 //
-#define OC_CPU_FREQUENCY_TOLERANCE 50000000ULL // 50 Mhz
+#define OC_CPU_FREQUENCY_TOLERANCE 50000000LL // 50 Mhz
+
+/**
+  Internal CPU synchronisation structure.
+**/
+typedef struct {
+  UINT64           Tsc;
+  volatile UINT32  CurrentCount;
+  UINT32           APThreadCount;
+} OC_CPU_TSC_SYNC;
 
 /**
   Returns microcode revision for Intel CPUs.
@@ -50,6 +59,7 @@ InternalDetectAppleMajorType (
   @param[in] Model           CPU model from CPUID.
   @param[in] Stepping        CPU stepping from CPUID.
   @param[in] AppleMajorType  Apple CPU major type.
+  @param[in] CoreCount       Number of physical cores.
 
   @retval Apple CPU type.
 **/
@@ -57,7 +67,8 @@ UINT16
 InternalDetectAppleProcessorType (
   IN UINT8  Model,
   IN UINT8  Stepping,
-  IN UINT8  AppleMajorType
+  IN UINT8  AppleMajorType,
+  IN UINT16 CoreCount
   );
 
 /**
@@ -88,6 +99,7 @@ InternalCalculateTSCFromPMTimer (
   Calculate the ART frequency and derieve the CPU frequency for Intel CPUs
 
   @param[out] CPUFrequency  The derieved CPU frequency.
+  @param[out] TscAdjustPtr  Adjustment value for TSC, optional.
   @param[in]  Recalculate   Do not re-use previously cached information.
 
   @retval  The calculated ART frequency.
@@ -95,6 +107,7 @@ InternalCalculateTSCFromPMTimer (
 UINT64
 InternalCalculateARTFrequencyIntel (
   OUT UINT64   *CPUFrequency,
+  OUT UINT64   *TscAdjustPtr OPTIONAL,
   IN  BOOLEAN  Recalculate
   );
 
@@ -110,6 +123,21 @@ UINT64
 InternalCalculateVMTFrequency (
   OUT UINT64   *FSBFrequency     OPTIONAL,
   OUT BOOLEAN  *UnderHypervisor  OPTIONAL
+  );
+
+/**
+  Atomically increment 32-bit integer.
+  This is required to be locally implemented as we cannot use SynchronizationLib,
+  which depends on TimerLib, and our TimerLib depends on this library.
+
+  @param[in]  Value  Pointer to 32-bit integer to increment.
+
+  @retval value after incrementing.
+**/
+UINT32
+EFIAPI
+AsmIncrementUint32 (
+  IN volatile UINT32  *Value
   );
 
 #endif // OC_CPU_INTERNALS_H

@@ -54,35 +54,37 @@ InternalOcGetSymbolWorkerName (
   //
   Kext->Processed = TRUE;
 
-  NumSymbols = Kext->NumberOfSymbols;
-  Symbols    = Kext->LinkedSymbolTable;
+  if (Kext->LinkedSymbolTable != NULL) {
+    NumSymbols = Kext->NumberOfSymbols;
+    Symbols    = Kext->LinkedSymbolTable;
 
-  if (SymbolLevel == OcGetSymbolOnlyCxx) {
-    NumSymbols = Kext->NumberOfCxxSymbols;
-    Symbols    = &Kext->LinkedSymbolTable[Kext->NumberOfSymbols - Kext->NumberOfCxxSymbols];
-  }
+    if (SymbolLevel == OcGetSymbolOnlyCxx) {
+      NumSymbols = Kext->NumberOfCxxSymbols;
+      Symbols    = &Kext->LinkedSymbolTable[Kext->NumberOfSymbols - Kext->NumberOfCxxSymbols];
+    }
 
-  SymbolsEnd = &Symbols[NumSymbols];
-  while (Symbols < SymbolsEnd) {
-    //
-    // Symbol names often start and end similarly due to C++ mangling (e.g. __ZN).
-    // To optimise the lookup we compare their length check in the middle.
-    // Please do not change this without careful profiling.
-    //
-    if (Symbols->Length == LookupValueLength) {
-      if (Symbols->Name[LookupValueLength / 2] == LookupValue[LookupValueLength / 2]
-        && Symbols->Name[(LookupValueLength / 2) + 1] == LookupValue[(LookupValueLength / 2) + 1]) {
-        for (Index = 0; Index < LookupValueLength; ++Index) {
-          if (Symbols->Name[Index] != LookupValue[Index]) {
-            break;
+    SymbolsEnd = &Symbols[NumSymbols];
+    while (Symbols < SymbolsEnd) {
+      //
+      // Symbol names often start and end similarly due to C++ mangling (e.g. __ZN).
+      // To optimise the lookup we compare their length check in the middle.
+      // Please do not change this without careful profiling.
+      //
+      if (Symbols->Length == LookupValueLength) {
+        if (Symbols->Name[LookupValueLength / 2] == LookupValue[LookupValueLength / 2]
+          && Symbols->Name[(LookupValueLength / 2) + 1] == LookupValue[(LookupValueLength / 2) + 1]) {
+          for (Index = 0; Index < LookupValueLength; ++Index) {
+            if (Symbols->Name[Index] != LookupValue[Index]) {
+              break;
+            }
+          }
+          if (Index == LookupValueLength) {
+            return Symbols;
           }
         }
-        if (Index == LookupValueLength) {
-          return Symbols;
-        }
       }
+      Symbols++;
     }
-    Symbols++;
   }
 
   if (SymbolLevel != OcGetSymbolFirstLevel) {
@@ -130,27 +132,29 @@ InternalOcGetSymbolWorkerValue (
   //
   Kext->Processed = TRUE;
 
-  NumSymbols = Kext->NumberOfSymbols;
-  Symbols    = Kext->LinkedSymbolTable;
+  if (Kext->LinkedSymbolTable != NULL) {
+    NumSymbols = Kext->NumberOfSymbols;
+    Symbols    = Kext->LinkedSymbolTable;
 
-  if (SymbolLevel == OcGetSymbolOnlyCxx) {
-    NumSymbols = Kext->NumberOfCxxSymbols;
-    Symbols    = &Kext->LinkedSymbolTable[(Kext->NumberOfSymbols - Kext->NumberOfCxxSymbols) & ~15ULL];
-  }
-  //
-  // WARN! Hot path! Do not change this code unless you have decent profiling data.
-  // We are not allowed to use SIMD in UEFI, but we can still do better with larger iteration.
-  // Up to 15 C symbols extra may get parsed, but it is fine, as they will not match.
-  // Increasing the iteration block to more than 16 no longer pays off.
-  // Note, lower loop is not on hot path.
-  //
-  SymbolsEnd = &Symbols[NumSymbols & ~15ULL];
-  while (Symbols < SymbolsEnd) {
-    #define MATCH(X) if (Symbols[X].Value == LookupValue) { return &Symbols[X]; }
-    MATCH (0) MATCH (1) MATCH (2)  MATCH (3)  MATCH (4)  MATCH (5)  MATCH (6)  MATCH (7)
-    MATCH (8) MATCH (9) MATCH (10) MATCH (11) MATCH (12) MATCH (13) MATCH (14) MATCH (15)
-    #undef MATCH
-    Symbols += 16;
+    if (SymbolLevel == OcGetSymbolOnlyCxx) {
+      NumSymbols = Kext->NumberOfCxxSymbols;
+      Symbols    = &Kext->LinkedSymbolTable[(Kext->NumberOfSymbols - Kext->NumberOfCxxSymbols) & ~15ULL];
+    }
+    //
+    // WARN! Hot path! Do not change this code unless you have decent profiling data.
+    // We are not allowed to use SIMD in UEFI, but we can still do better with larger iteration.
+    // Up to 15 C symbols extra may get parsed, but it is fine, as they will not match.
+    // Increasing the iteration block to more than 16 no longer pays off.
+    // Note, lower loop is not on hot path.
+    //
+    SymbolsEnd = &Symbols[NumSymbols & ~15ULL];
+    while (Symbols < SymbolsEnd) {
+      #define MATCH(X) if (Symbols[X].Value == LookupValue) { return &Symbols[X]; }
+      MATCH (0) MATCH (1) MATCH (2)  MATCH (3)  MATCH (4)  MATCH (5)  MATCH (6)  MATCH (7)
+      MATCH (8) MATCH (9) MATCH (10) MATCH (11) MATCH (12) MATCH (13) MATCH (14) MATCH (15)
+      #undef MATCH
+      Symbols += 16;
+    }
   }
 
   if (SymbolLevel != OcGetSymbolFirstLevel) {
@@ -926,7 +930,7 @@ InternalRelocateRelocationIntel64 (
   }
 
   if (InvalidPcRel) {
-    DEBUG ((DEBUG_WARN, "Prelink: Relocation has invalid PC relative flag\n"));
+    DEBUG ((DEBUG_WARN, "OCAK: Relocation has invalid PC relative flag\n"));
   }
 
   ReturnValue = (MachoPreserveRelocationIntel64 (Type) ? 1 : 0);
@@ -976,8 +980,8 @@ InternalRelocateAndCopyRelocations64 (
   MACH_RELOCATION_INFO       *Relocation;
 
   ASSERT (Kext != NULL);
-  ASSERT (SourceRelocations != NULL);
   ASSERT (NumRelocations != NULL);
+  ASSERT (SourceRelocations != NULL || *NumRelocations == 0);
   ASSERT (TargetRelocations != NULL);
 
   PreservedRelocations = 0;
@@ -1228,7 +1232,7 @@ InternalProcessSymbolPointers (
            The state of the KEXT is undefined in case this routine fails.
 
 **/
-RETURN_STATUS
+EFI_STATUS
 InternalPrelinkKext64 (
   IN OUT PRELINKED_CONTEXT  *Context,
   IN     PRELINKED_KEXT     *Kext,
@@ -1299,11 +1303,11 @@ InternalPrelinkKext64 (
   // Only perform actions when the kext is flag'd to be dynamically linked.
   //
   if ((MachHeader->Flags & MACH_HEADER_FLAG_DYNAMIC_LINKER_LINK) == 0) {
-    return RETURN_SUCCESS;
+    return EFI_SUCCESS;
   }
 
-  if (Kext->Context.VirtualKmod == 0) {
-    return RETURN_UNSUPPORTED;
+  if (LinkEditSegment == NULL || Kext->Context.VirtualKmod == 0) {
+    return EFI_UNSUPPORTED;
   }
   //
   // Retrieve the symbol tables required for most following operations.
@@ -1320,7 +1324,7 @@ InternalPrelinkKext64 (
                  &NumUndefinedSymbols
                  );
   if (NumSymbols == 0) {
-    return RETURN_UNSUPPORTED;
+    return EFI_UNSUPPORTED;
   }
 
   Symtab = MachoContext->Symtab;
@@ -1358,7 +1362,7 @@ InternalPrelinkKext64 (
   LinkEditSize = (SymbolTableSize + RelocationsSize + StringTableSize);
 
   if (LinkEditSize > LinkEditSegment->FileSize) {
-    return RETURN_UNSUPPORTED;
+    return EFI_UNSUPPORTED;
   }
 
   SymbolTableSize -= (NumUndefinedSymbols * sizeof (MACH_NLIST_64));
@@ -1377,7 +1381,7 @@ InternalPrelinkKext64 (
     Symbol     = (MACH_NLIST_64 *)&IndirectSymtab[Index];
     SymbolName = MachoGetIndirectSymbolName64 (MachoContext, Symbol);
     if (SymbolName == NULL) {
-      return RETURN_LOAD_ERROR;
+      return EFI_LOAD_ERROR;
     }
 
     Result = InternalSolveSymbol64 (
@@ -1390,7 +1394,7 @@ InternalPrelinkKext64 (
                NumUndefinedSymbols
                );
     if (!Result) {
-      return RETURN_LOAD_ERROR;
+      return EFI_LOAD_ERROR;
     }
   }
   //
@@ -1401,19 +1405,24 @@ InternalPrelinkKext64 (
     //
     // Undefined symbols are solved via their name.
     //
+    SymbolName = MachoGetSymbolName64 (MachoContext, Symbol);
     Result = InternalSolveSymbol64 (
                Context,
                Kext,
-               MachoGetSymbolName64 (MachoContext, Symbol),
+               SymbolName,
                Symbol,
                &WeakTestValue,
                UndefinedSymtab,
                NumUndefinedSymbols
                );
     if (!Result) {
-      DEBUG ((DEBUG_INFO, "Symbol %s was unresolved for kext %a\n",
-        MachoGetSymbolName64 (MachoContext, Symbol), Kext->Identifier));
-      return RETURN_LOAD_ERROR;
+      DEBUG ((
+        DEBUG_INFO,
+        "OCAK: Symbol %s was unresolved for kext %a\n",
+        MachoGetSymbolName64 (MachoContext, Symbol),
+        Kext->Identifier
+        ));
+      return EFI_LOAD_ERROR;
     }
   }
   //
@@ -1421,8 +1430,8 @@ InternalPrelinkKext64 (
   //
   Result = InternalPatchByVtables64 (Context, Kext);
   if (!Result) {
-    DEBUG ((DEBUG_INFO, "Vtable patching failed for kext %a\n", Kext->Identifier));
-    return RETURN_LOAD_ERROR;
+    DEBUG ((DEBUG_INFO, "OCAK: Vtable patching failed for kext %a\n", Kext->Identifier));
+    return EFI_LOAD_ERROR;
   }
   //
   // Relocate local and external symbols.
@@ -1437,7 +1446,7 @@ InternalPrelinkKext64 (
              &KmodInfoOffset
              );
   if (!Result) {
-    return RETURN_LOAD_ERROR;
+    return EFI_LOAD_ERROR;
   }
 
   Result = InternalRelocateSymbols (
@@ -1448,19 +1457,19 @@ InternalPrelinkKext64 (
              &KmodInfoOffset
              );
   if (!Result || (KmodInfoOffset == 0)) {
-    return RETURN_LOAD_ERROR;
+    return EFI_LOAD_ERROR;
   }
 
   KmodInfo = (KMOD_INFO_64_V1 *)((UINTN)MachHeader + (UINTN)KmodInfoOffset);
 
   FirstSegment = MachoGetNextSegment64 (MachoContext, NULL);
   if (FirstSegment == NULL) {
-    return RETURN_UNSUPPORTED;
+    return EFI_UNSUPPORTED;
   }
   
   Result = InternalProcessSymbolPointers (MachoContext, DySymtab, LoadAddress);
   if (!Result) {
-    return RETURN_LOAD_ERROR;
+    return EFI_LOAD_ERROR;
   }
   //
   // Copy the relocations to be reserved and adapt the symbol number they
@@ -1484,7 +1493,7 @@ InternalPrelinkKext64 (
              &TargetRelocation[0]
              );
   if (!Result) {
-    return RETURN_LOAD_ERROR;
+    return EFI_LOAD_ERROR;
   }
 
   Relocations     = MachoContext->ExternRelocations;
@@ -1499,7 +1508,7 @@ InternalPrelinkKext64 (
              &TargetRelocation[NumRelocations]
              );
   if (!Result) {
-    return RETURN_LOAD_ERROR;
+    return EFI_LOAD_ERROR;
   }
   NumRelocations += NumRelocations2;
   RelocationsSize = (NumRelocations * sizeof (MACH_RELOCATION_INFO));
@@ -1640,12 +1649,12 @@ InternalPrelinkKext64 (
   // Reinitialize the Mach-O context to account for the changed __LINKEDIT
   // segment and file size.
   //
-  if (!MachoInitializeContext (MachoContext, MachHeader, (SegmentOffset + SegmentSize))) {
+  if (!MachoInitializeContext (MachoContext, MachHeader, (SegmentOffset + SegmentSize), MachoContext->ContainerOffset)) {
     //
     // This should never failed under normal and abnormal conditions.
     //
     ASSERT (FALSE);
-    return RETURN_INVALID_PARAMETER;
+    return EFI_INVALID_PARAMETER;
   }
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }

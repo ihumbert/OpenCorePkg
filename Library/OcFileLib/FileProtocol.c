@@ -41,6 +41,7 @@ GetFileData (
 
   ReadSize = Size;
   Status = File->Read (File, &ReadSize, Buffer);
+  File->SetPosition (File, 0);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -67,6 +68,7 @@ GetFileSize (
   }
 
   Status = File->GetPosition (File, &Position);
+  File->SetPosition (File, 0);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -81,35 +83,16 @@ GetFileSize (
 }
 
 EFI_STATUS
-GetFileModifcationTime (
+GetFileModificationTime (
   IN  EFI_FILE_PROTOCOL  *File,
   OUT EFI_TIME           *Time
   )
 {
-  EFI_STATUS     Status;
-  UINTN          BufferSize;
   EFI_FILE_INFO  *FileInfo;
 
-  BufferSize = 0;
-  Status = File->GetInfo (File, &gEfiFileInfoGuid, &BufferSize, NULL);
-
-  if (Status != EFI_BUFFER_TOO_SMALL) {
-    return Status;
-  }
-
-  if (BufferSize < sizeof (EFI_FILE_INFO)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  FileInfo = (EFI_FILE_INFO *) AllocatePool (BufferSize);
+  FileInfo = GetFileInfo (File, &gEfiFileInfoGuid, 0, NULL);
   if (FileInfo == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  Status = File->GetInfo (File, &gEfiFileInfoGuid, &BufferSize, FileInfo);
-  if (EFI_ERROR (Status)) {
-    FreePool (FileInfo);
-    return Status;
+    return EFI_INVALID_PARAMETER;
   }
 
   CopyMem (Time, &FileInfo->ModificationTime, sizeof (*Time));
@@ -154,7 +137,7 @@ FindWritableFileSystem (
     if (EFI_ERROR (Status)) {
       DEBUG ((
         DEBUG_VERBOSE,
-        "FindWritableFileSystem: gBS->HandleProtocol[%u] returned %r\n",
+        "OCFS: FindWritableFileSystem gBS->HandleProtocol[%u] returned %r\n",
         (UINT32) Index,
         Status
         ));
@@ -165,7 +148,7 @@ FindWritableFileSystem (
     if (EFI_ERROR (Status)) {
       DEBUG ((
         DEBUG_VERBOSE,
-        "FindWritableFileSystem: SimpleFs->OpenVolume[%u] returned %r\n",
+        "OCFS: FindWritableFileSystem SimpleFs->OpenVolume[%u] returned %r\n",
         (UINT32) Index,
         Status
         ));
@@ -185,7 +168,7 @@ FindWritableFileSystem (
     if (EFI_ERROR (Status)) {
       DEBUG ((
         DEBUG_VERBOSE,
-        "FindWritableFileSystem: Fs->Open[%u] returned %r\n",
+        "OCFS: FindWritableFileSystem Fs->Open[%u] returned %r\n",
         (UINT32) Index,
         Status
         ));
@@ -221,7 +204,7 @@ SetFileData (
   if (WritableFs == NULL) {
     Status = FindWritableFileSystem (&Fs);
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_VERBOSE, "WriteFileData: Can't find writable FS\n"));
+      DEBUG ((DEBUG_VERBOSE, "OCFS: WriteFileData can't find writable FS\n"));
       return Status;
     }
   } else {
@@ -242,7 +225,7 @@ SetFileData (
     Fs->Close (File);
 
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_VERBOSE, "WriteFileData: File->Write returned %r\n", Status));
+      DEBUG ((DEBUG_VERBOSE, "OCFS: WriteFileData file->Write returned %r\n", Status));
     } else if (WrittenSize != Size) {
       DEBUG ((
         DEBUG_VERBOSE,
@@ -254,7 +237,7 @@ SetFileData (
       Status = EFI_BAD_BUFFER_SIZE;
     }
   } else {
-    DEBUG ((DEBUG_VERBOSE, "WriteFileData: Fs->Open of %s returned %r\n", FileName, Status));
+    DEBUG ((DEBUG_VERBOSE, "OCFS: WriteFileData Fs->Open of %s returned %r\n", FileName, Status));
   }
 
   if (WritableFs == NULL) {
@@ -262,4 +245,38 @@ SetFileData (
   } 
 
   return Status;
+}
+
+EFI_STATUS
+AllocateCopyFileData (
+  IN  EFI_FILE_PROTOCOL  *File,
+  OUT UINT8              **Buffer,
+  OUT UINT32             *BufferSize
+  )
+{
+  EFI_STATUS    Status;
+  UINT8         *FileBuffer;
+  UINT32        ReadSize;
+
+  //
+  // Get full file data.
+  //
+  Status = GetFileSize (File, &ReadSize);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  FileBuffer = AllocatePool (ReadSize);
+  if (FileBuffer == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+  Status = GetFileData (File, 0, ReadSize, FileBuffer);
+  if (EFI_ERROR (Status)) {
+    FreePool (FileBuffer);
+    return Status;
+  }
+
+  *Buffer     = FileBuffer;
+  *BufferSize = ReadSize;
+  return EFI_SUCCESS;
 }

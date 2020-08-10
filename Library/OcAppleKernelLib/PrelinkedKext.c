@@ -20,6 +20,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/OcAppleKernelLib.h>
 #include <Library/OcMachoLib.h>
+#include <Library/OcStringLib.h>
 #include <Library/OcXmlLib.h>
 
 #include "PrelinkedInternal.h"
@@ -41,21 +42,24 @@ InternalCreatePrelinkedKext (
   IN CONST CHAR8            *Identifier OPTIONAL
   )
 {
-  PRELINKED_KEXT  *NewKext;
-  UINT32          FieldIndex;
-  UINT32          FieldCount;
-  CONST CHAR8     *KextPlistKey;
-  XML_NODE        *KextPlistValue;
-  CONST CHAR8     *KextIdentifier;
-  XML_NODE        *BundleLibraries;
-  XML_NODE        *BundleLibraries64;
-  CONST CHAR8     *CompatibleVersion;
-  UINT64          VirtualBase;
-  UINT64          VirtualKmod;
-  UINT64          SourceBase;
-  UINT64          SourceSize;
-  UINT64          SourceEnd;
-  BOOLEAN         Found;
+  PRELINKED_KEXT           *NewKext;
+  UINT32                   FieldIndex;
+  UINT32                   FieldCount;
+  CONST CHAR8              *KextPlistKey;
+  XML_NODE                 *KextPlistValue;
+  CONST CHAR8              *KextIdentifier;
+  XML_NODE                 *BundleLibraries;
+  XML_NODE                 *BundleLibraries64;
+  CONST CHAR8              *CompatibleVersion;
+  UINT64                   VirtualBase;
+  UINT64                   VirtualKmod;
+  UINT64                   SourceBase;
+  UINT64                   SourceSize;
+  UINT64                   CalculatedSourceSize;
+  UINT64                   SourceEnd;
+  MACH_SEGMENT_COMMAND_64  *BaseSegment;
+  UINT32                   ContainerOffset;
+  BOOLEAN                  Found;
 
   KextIdentifier    = NULL;
   BundleLibraries   = NULL;
@@ -133,12 +137,37 @@ InternalCreatePrelinkedKext (
     return NULL;
   }
 
+  if (Prelinked != NULL && Prelinked->IsKernelCollection) {
+    CalculatedSourceSize = KcGetKextSize (Prelinked, SourceBase);
+    if (CalculatedSourceSize < MAX_UINT32 && CalculatedSourceSize > SourceSize) {
+      DEBUG ((
+        DEBUG_INFO,
+        "OCAK: Patching invalid size %Lx with %Lx for %a\n",
+        SourceSize,
+        CalculatedSourceSize,
+        KextIdentifier
+        ));
+      SourceSize = CalculatedSourceSize;
+    }
+  }
+
   if (Prelinked != NULL) {
-    SourceBase -= Prelinked->PrelinkedTextSegment->VirtualAddress;
-    if (OcOverflowAddU64 (SourceBase, Prelinked->PrelinkedTextSegment->FileOffset, &SourceBase) ||
+    if (Prelinked->IsKernelCollection) {
+      BaseSegment = Prelinked->RegionSegment;
+    } else {
+      BaseSegment = Prelinked->PrelinkedTextSegment;
+    }
+
+    SourceBase -= BaseSegment->VirtualAddress;
+    if (OcOverflowAddU64 (SourceBase, BaseSegment->FileOffset, &SourceBase) ||
       OcOverflowAddU64 (SourceBase, SourceSize, &SourceEnd) ||
       SourceEnd > Prelinked->PrelinkedSize) {
       return NULL;
+    }
+
+    ContainerOffset = 0;
+    if (Prelinked->IsKernelCollection) {
+      ContainerOffset = (UINT32) SourceBase;
     }
   }
 
@@ -151,7 +180,7 @@ InternalCreatePrelinkedKext (
   }
 
   if (Prelinked != NULL
-    && !MachoInitializeContext (&NewKext->Context.MachContext, &Prelinked->Prelinked[SourceBase], (UINT32)SourceSize)) {
+    && !MachoInitializeContext (&NewKext->Context.MachContext, &Prelinked->Prelinked[SourceBase], (UINT32)SourceSize, ContainerOffset)) {
     FreePool (NewKext);
     return NULL;
   }
@@ -167,23 +196,26 @@ InternalCreatePrelinkedKext (
 }
 
 STATIC
-RETURN_STATUS
-InternalScanCurrentPrelinkedKextLinkedEdit (
-  IN OUT PRELINKED_KEXT  *Kext
+VOID
+InternalScanCurrentPrelinkedKextLinkInfo (
+  IN OUT PRELINKED_KEXT     *Kext,
+  IN     PRELINKED_CONTEXT  *Context
   )
 {
   if (Kext->LinkEditSegment == NULL) {
-    Kext->LinkEditSegment = MachoGetSegmentByName64 (
-      &Kext->Context.MachContext,
-      "__LINKEDIT"
-      );
-
-    if (Kext->LinkEditSegment == NULL) {
-      return RETURN_NOT_FOUND;
-    }
+    DEBUG ((DEBUG_VERBOSE, "OCAK: Requesting __LINKEDIT for %a\n", Kext->Identifier));
+    if (AsciiStrCmp (Kext->Identifier, PRELINK_KERNEL_IDENTIFIER) == 0) {
+      Kext->LinkEditSegment = Context->LinkEditSegment;
+    } else {
+      Kext->LinkEditSegment = MachoGetSegmentByName64 (
+        &Kext->Context.MachContext,
+        "__LINKEDIT"
+        );
+    }    
   }
 
   if (Kext->SymbolTable == NULL) {
+    DEBUG ((DEBUG_VERBOSE, "OCAK: Requesting SymbolTable for %a\n", Kext->Identifier));
     Kext->NumberOfSymbols = MachoGetSymbolTable (
                    &Kext->Context.MachContext,
                    &Kext->SymbolTable,
@@ -195,16 +227,11 @@ InternalScanCurrentPrelinkedKextLinkedEdit (
                    NULL,
                    NULL
                    );
-    if (Kext->NumberOfSymbols == 0) {
-      return RETURN_NOT_FOUND;
-    }
   }
-
-  return RETURN_SUCCESS;
 }
 
 STATIC
-RETURN_STATUS
+EFI_STATUS
 InternalScanBuildLinkedSymbolTable (
   IN OUT PRELINKED_KEXT     *Kext,
   IN     PRELINKED_CONTEXT  *Context
@@ -225,12 +252,12 @@ InternalScanBuildLinkedSymbolTable (
   BOOLEAN               Result;
 
   if (Kext->LinkedSymbolTable != NULL) {
-    return RETURN_SUCCESS;
+    return EFI_SUCCESS;
   }
 
   SymbolTable = AllocatePool (Kext->NumberOfSymbols * sizeof (*SymbolTable));
   if (SymbolTable == NULL) {
-    return RETURN_OUT_OF_RESOURCES;
+    return EFI_OUT_OF_RESOURCES;
   }
 
   MachHeader = MachoGetMachHeader64 (&Kext->Context.MachContext);
@@ -272,7 +299,7 @@ InternalScanBuildLinkedSymbolTable (
         Name = MachoGetIndirectSymbolName64 (&Kext->Context.MachContext, Symbol);
         if (Name == NULL) {
           FreePool (SymbolTable);
-          return RETURN_LOAD_ERROR;
+          return EFI_LOAD_ERROR;
         }
 
         CopyMem (&SymbolScratch, Symbol, sizeof (SymbolScratch));
@@ -284,7 +311,7 @@ InternalScanBuildLinkedSymbolTable (
                            );
         if (ResolvedSymbol == NULL) {
           FreePool (SymbolTable);
-          return RETURN_NOT_FOUND;
+          return EFI_NOT_FOUND;
         }
         SymbolScratch.Value = ResolvedSymbol->Value;
         Symbol = &SymbolScratch;
@@ -321,11 +348,11 @@ InternalScanBuildLinkedSymbolTable (
   Kext->NumberOfCxxSymbols = NumCxxSymbols;
   Kext->LinkedSymbolTable  = SymbolTable;
 
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
 STATIC
-RETURN_STATUS
+EFI_STATUS
 InternalScanBuildLinkedVtables (
   IN OUT PRELINKED_KEXT     *Kext,
   IN     PRELINKED_CONTEXT  *Context
@@ -345,7 +372,7 @@ InternalScanBuildLinkedVtables (
   VOID                             *Tmp;
 
   if (Kext->LinkedVtables != NULL) {
-    return RETURN_SUCCESS;
+    return EFI_SUCCESS;
   }
 
   VtableLookups = Context->LinkBuffer;
@@ -358,7 +385,7 @@ InternalScanBuildLinkedVtables (
              VtableLookups
              );
   if (!Result) {
-    return RETURN_UNSUPPORTED;
+    return EFI_UNSUPPORTED;
   }
 
   NumEntries = 0;
@@ -375,7 +402,7 @@ InternalScanBuildLinkedVtables (
             &VtableMaxSize
             );
     if (Tmp == NULL || !OC_TYPE_ALIGNED (UINT64, Tmp)) {
-      return RETURN_UNSUPPORTED;
+      return EFI_UNSUPPORTED;
     }
     VtableData = (UINT64 *)Tmp;
 
@@ -385,7 +412,7 @@ InternalScanBuildLinkedVtables (
                &NumEntriesTemp
                );
     if (!Result) {
-      return RETURN_UNSUPPORTED;
+      return EFI_UNSUPPORTED;
     }
 
     VtableLookups[Index].Vtable.Data = VtableData;
@@ -398,7 +425,7 @@ InternalScanBuildLinkedVtables (
                       + (NumEntries * sizeof (*LinkedVtables->Entries))
                     );
   if (LinkedVtables == NULL) {
-    return RETURN_OUT_OF_RESOURCES;
+    return EFI_OUT_OF_RESOURCES;
   }
 
   InternalCreateVtablesPrelinked64 (
@@ -412,39 +439,71 @@ InternalScanBuildLinkedVtables (
   Kext->NumberOfVtables = NumVtables;
   Kext->LinkedVtables   = LinkedVtables;
 
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
 STATIC
-RETURN_STATUS
+UINT32
+InternalGetLinkBufferSize (
+  IN OUT PRELINKED_KEXT  *Kext
+  )
+{
+  UINT32 Size;
+  //
+  // LinkBuffer must be able to hold all symbols and for KEXTs to be prelinked
+  // also the __LINKEDIT segment (however not both simultaneously/separately).
+  //
+  Size = Kext->NumberOfSymbols * sizeof (MACH_NLIST_64);
+  
+  if (Kext->LinkEditSegment != NULL) {
+    Size = MAX ((UINT32) Kext->LinkEditSegment->FileSize, Size);
+  }
+
+  return Size;
+}
+
+STATIC
+EFI_STATUS
 InternalUpdateLinkBuffer (
   IN OUT PRELINKED_KEXT     *Kext,
   IN OUT PRELINKED_CONTEXT  *Context
   )
 {
+  UINT32 BufferSize;
+
   ASSERT (Kext != NULL);
   ASSERT (Context != NULL);
 
   if (Context->LinkBuffer == NULL) {
+    //
+    // Context->LinkBufferSize was updated recursively during initial dependency
+    // walk to save reallocations.
+    //
+    ASSERT (Context->LinkBufferSize >= InternalGetLinkBufferSize (Kext));
+
     Context->LinkBuffer = AllocatePool (Context->LinkBufferSize);
     if (Context->LinkBuffer == NULL) {
-      return RETURN_OUT_OF_RESOURCES;
+      return EFI_OUT_OF_RESOURCES;
     }
-  } else if (Context->LinkBufferSize < Kext->LinkEditSegment->FileSize) {
-    FreePool (Context->LinkBuffer);
+  } else {
+    BufferSize = InternalGetLinkBufferSize (Kext);
 
-    Context->LinkBufferSize = (UINT32)Kext->LinkEditSegment->FileSize;
-    Context->LinkBuffer     = AllocatePool (Context->LinkBufferSize);
-    if (Context->LinkBuffer == NULL) {
-      return RETURN_OUT_OF_RESOURCES;
+    if (Context->LinkBufferSize < BufferSize) {
+      FreePool (Context->LinkBuffer);
+
+      Context->LinkBufferSize = BufferSize;
+      Context->LinkBuffer     = AllocatePool (Context->LinkBufferSize);
+      if (Context->LinkBuffer == NULL) {
+        return EFI_OUT_OF_RESOURCES;
+      }
     }
   }
 
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
 STATIC
-RETURN_STATUS
+EFI_STATUS
 InternalInsertPrelinkedKextDependency (
   IN OUT PRELINKED_KEXT     *Kext,
   IN OUT PRELINKED_CONTEXT  *Context,
@@ -452,21 +511,21 @@ InternalInsertPrelinkedKextDependency (
   IN OUT PRELINKED_KEXT     *DependencyKext
   )
 {
-  RETURN_STATUS  Status;
+  EFI_STATUS  Status;
 
   if (DependencyIndex >= ARRAY_SIZE (Kext->Dependencies)) {
-    DEBUG ((DEBUG_INFO, "Kext %a has more than %u or more dependencies!", Kext->Identifier, DependencyIndex));
-    return RETURN_OUT_OF_RESOURCES;
+    DEBUG ((DEBUG_INFO, "OCAK: Kext %a has more than %u or more dependencies!", Kext->Identifier, DependencyIndex));
+    return EFI_OUT_OF_RESOURCES;
   }
 
   Status = InternalScanPrelinkedKext (DependencyKext, Context, TRUE);
-  if (RETURN_ERROR (Status)) {
+  if (EFI_ERROR (Status)) {
     return Status;
   }
 
   Kext->Dependencies[DependencyIndex] = DependencyKext;
 
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
 PRELINKED_KEXT *
@@ -580,10 +639,11 @@ InternalCachedPrelinkedKernel (
   ASSERT (Prelinked->Prelinked != NULL);
   ASSERT (Prelinked->PrelinkedSize > 0);
 
-  if (!MachoInitializeContext (&NewKext->Context.MachContext, &Prelinked->Prelinked[0], Prelinked->PrelinkedSize)) {
-    FreePool (NewKext);
-    return NULL;
-  }
+  CopyMem (
+    &NewKext->Context.MachContext,
+    &Prelinked->PrelinkedMachContext,
+    sizeof (NewKext->Context.MachContext)
+    );
 
   Segment = MachoGetSegmentByName64 (
     &NewKext->Context.MachContext,
@@ -638,15 +698,14 @@ InternalGetQuirkDependencyKext (
   return DependencyKext;
 }
 
-RETURN_STATUS
+EFI_STATUS
 InternalScanPrelinkedKext (
   IN OUT PRELINKED_KEXT     *Kext,
   IN OUT PRELINKED_CONTEXT  *Context,
   IN     BOOLEAN            Dependency
   )
 {
-  RETURN_STATUS   Status;
-  RETURN_STATUS   LinkedEditStatus;
+  EFI_STATUS      Status;
   UINT32          FieldCount;
   UINT32          FieldIndex;
   UINT32          DependencyIndex;
@@ -656,30 +715,30 @@ InternalScanPrelinkedKext (
   // __LINKEDIT may validly not be present, as seen for 10.7.5's
   // com.apple.kpi.unsupported.
   //
-  LinkedEditStatus = InternalScanCurrentPrelinkedKextLinkedEdit (Kext);
-  if (!RETURN_ERROR (LinkedEditStatus)) {
-    //
-    // Find the biggest __LINKEDIT size down the first dependency tree walk to
-    // possibly save a few re-allocations.
-    //
-    if ((Context->LinkBuffer == NULL)
-     && (Context->LinkBufferSize < Kext->LinkEditSegment->FileSize)) {
-      Context->LinkBufferSize = (UINT32)Kext->LinkEditSegment->FileSize;
-    }
+  InternalScanCurrentPrelinkedKextLinkInfo (Kext, Context);
+  //
+  // Find the biggest LinkBuffer size down the first dependency tree walk to
+  // possibly save a few re-allocations.
+  //
+  if (Context->LinkBuffer == NULL) {
+    Context->LinkBufferSize = MAX (
+                                InternalGetLinkBufferSize (Kext),
+                                Context->LinkBufferSize
+                                );
+  }
 
-    //
-    // Always add kernel dependency.
-    //
-    DependencyKext = InternalCachedPrelinkedKernel (Context);
-    if (DependencyKext == NULL) {
-      return RETURN_NOT_FOUND;
-    }
+  //
+  // Always add kernel dependency.
+  //
+  DependencyKext = InternalCachedPrelinkedKernel (Context);
+  if (DependencyKext == NULL) {
+    return EFI_NOT_FOUND;
+  }
 
-    if (DependencyKext != Kext) {
-      Status = InternalInsertPrelinkedKextDependency (Kext, Context, 0, DependencyKext);
-      if (RETURN_ERROR (Status)) {
-        return Status;
-      }
+  if (DependencyKext != Kext) {
+    Status = InternalInsertPrelinkedKextDependency (Kext, Context, 0, DependencyKext);
+    if (EFI_ERROR (Status)) {
+      return Status;
     }
   }
 
@@ -694,12 +753,23 @@ InternalScanPrelinkedKext (
       }
 
       //
+      // In 11.0 KPIs just like plist-only kexts are not present in memory and their
+      // _PrelinkExecutableLoadAddr / _PrelinkExecutableSourceAddr values equal to MAX_INT64.
+      // Skip them early to improve performance.
+      //
+      if (Context->IsKernelCollection
+        && AsciiStrnCmp (DependencyId, "com.apple.kpi.", L_STR_LEN ("com.apple.kpi.")) == 0) {
+        DEBUG ((DEBUG_VERBOSE, "OCAK: Ignoring KPI %a for kext %a in KC mode\n", DependencyId, Kext->Identifier));
+        continue;
+      }
+
+      //
       // We still need to add KPI dependencies, as they may have indirect symbols,
       // which are not present in kernel (e.g. _IOLockLock).
       //
       DependencyKext = InternalCachedPrelinkedKext (Context, DependencyId);
       if (DependencyKext == NULL) {
-        DEBUG ((DEBUG_INFO, "Dependency %a was not found for kext %a\n", DependencyId, Kext->Identifier));
+        DEBUG ((DEBUG_INFO, "OCAK: Dependency %a was not found for kext %a\n", DependencyId, Kext->Identifier));
 
         DependencyKext = InternalGetQuirkDependencyKext (DependencyId, Context);
         if (DependencyKext == NULL) {
@@ -714,7 +784,7 @@ InternalScanPrelinkedKext (
       }
 
       Status = InternalInsertPrelinkedKextDependency (Kext, Context, DependencyIndex, DependencyKext);
-      if (RETURN_ERROR (Status)) {
+      if (EFI_ERROR (Status)) {
         return Status;
       }
 
@@ -728,31 +798,29 @@ InternalScanPrelinkedKext (
     Kext->BundleLibraries = NULL;
   }
 
-  if (!RETURN_ERROR (LinkedEditStatus)) {
-    //
-    // Extend or allocate LinkBuffer in case there are no dependencies (kernel).
-    //
-    Status = InternalUpdateLinkBuffer (Kext, Context);
-    if (RETURN_ERROR (Status)) {
+  //
+  // Extend or allocate LinkBuffer in case there are no dependencies (kernel).
+  //
+  Status = InternalUpdateLinkBuffer (Kext, Context);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+  //
+  // Collect data to enable linking against this KEXT.
+  //
+  if (Dependency) {
+    Status = InternalScanBuildLinkedSymbolTable (Kext, Context);
+    if (EFI_ERROR (Status)) {
       return Status;
     }
-    //
-    // Collect data to enable linking against this KEXT.
-    //
-    if (Dependency) {
-      Status = InternalScanBuildLinkedSymbolTable (Kext, Context);
-      if (RETURN_ERROR (Status)) {
-        return Status;
-      }
 
-      Status = InternalScanBuildLinkedVtables (Kext, Context);
-      if (RETURN_ERROR (Status)) {
-        return Status;
-      }
+    Status = InternalScanBuildLinkedVtables (Kext, Context);
+    if (EFI_ERROR (Status)) {
+      return Status;
     }
   }
 
-  return RETURN_SUCCESS;
+  return EFI_SUCCESS;
 }
 
 VOID
@@ -778,7 +846,7 @@ InternalLinkPrelinkedKext (
   IN     UINT64             KmodAddress
   )
 {
-  RETURN_STATUS      Status;
+  EFI_STATUS      Status;
   PRELINKED_KEXT  *Kext;
 
   Kext = InternalNewPrelinkedKext (Executable, PlistRoot);
@@ -787,7 +855,7 @@ InternalLinkPrelinkedKext (
   }
 
   Status = InternalScanPrelinkedKext (Kext, Context, FALSE);
-  if (RETURN_ERROR (Status)) {
+  if (EFI_ERROR (Status)) {
     InternalFreePrelinkedKext (Kext);
     return NULL;
   }
@@ -802,7 +870,7 @@ InternalLinkPrelinkedKext (
   }
 
   Status = PrelinkedDependencyInsert (Context, (VOID *)Kext->Identifier);
-  if (RETURN_ERROR (Status)) {
+  if (EFI_ERROR (Status)) {
     FreePool ((VOID *)Kext->Identifier);
     InternalFreePrelinkedKext (Kext);
     return NULL;
@@ -818,7 +886,7 @@ InternalLinkPrelinkedKext (
     }
 
     Status = PrelinkedDependencyInsert (Context, (VOID *)Kext->CompatibleVersion);
-    if (RETURN_ERROR (Status)) {
+    if (EFI_ERROR (Status)) {
       FreePool ((VOID *)Kext->CompatibleVersion);
       InternalFreePrelinkedKext (Kext);
       return NULL;
@@ -832,7 +900,7 @@ InternalLinkPrelinkedKext (
 
   Status = InternalPrelinkKext64 (Context, Kext, LoadAddress);
 
-  if (RETURN_ERROR (Status)) {
+  if (EFI_ERROR (Status)) {
     InternalFreePrelinkedKext (Kext);
     return NULL;
   }

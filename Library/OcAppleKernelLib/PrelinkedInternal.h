@@ -61,7 +61,14 @@ struct PRELINKED_KEXT_ {
   // eventually be part of a list and to save separate allocations per KEXT.
   //
   UINT32                   Signature;
+  //
+  // Link for global list (PRELINKED_CONTEXT -> PrelinkedKexts).
+  //
   LIST_ENTRY               Link;
+  //
+  // Link for local list (PRELINKED_CONTEXT -> InjectedKexts).
+  //
+  LIST_ENTRY               InjectedLink;
   //
   // Kext CFBundleIdentifier.
   //
@@ -129,7 +136,7 @@ struct PRELINKED_KEXT_ {
 #define PRELINKED_KEXT_SIGNATURE  SIGNATURE_32 ('P', 'K', 'X', 'T')
 
 /**
-  Gets the next element in a linked list of PRELINKED_KEXT.
+  Gets the next element in PrelinkedKexts list of PRELINKED_KEXT.
 
   @param[in] This  The current ListEntry.
 **/
@@ -140,6 +147,20 @@ struct PRELINKED_KEXT_ {
     Link,                                   \
     PRELINKED_KEXT_SIGNATURE                \
     ))
+
+/**
+  Gets the next element in InjectedKexts list of PRELINKED_KEXT.
+
+  @param[in] This  The current ListEntry.
+**/
+#define GET_INJECTED_KEXT_FROM_LINK(This)   \
+  (CR (                                     \
+    (This),                                 \
+    PRELINKED_KEXT,                         \
+    InjectedLink,                           \
+    PRELINKED_KEXT_SIGNATURE                \
+    ))
+
 
 /**
   Creates new PRELINKED_KEXT from OC_MACHO_CONTEXT.
@@ -178,7 +199,7 @@ InternalCachedPrelinkedKernel (
 /**
   Scan PRELINKED_KEXT for dependencies.
 **/
-RETURN_STATUS
+EFI_STATUS
 InternalScanPrelinkedKext (
   IN OUT PRELINKED_KEXT     *Kext,
   IN OUT PRELINKED_CONTEXT  *Context,
@@ -215,6 +236,15 @@ InternalLinkPrelinkedKext (
   IN     UINT64             KmodAddress
   );
 
+EFI_STATUS
+InternalConnectExternalSymtab (
+  IN OUT OC_MACHO_CONTEXT  *Context,
+     OUT OC_MACHO_CONTEXT  *InnerContext,
+  IN     UINT8             *Buffer,
+  IN     UINT32            BufferSize,
+     OUT BOOLEAN           *KernelCollection  OPTIONAL
+  );
+
 #define KXLD_WEAK_TEST_SYMBOL  "_gOSKextUnresolved"
 
 #define OS_METACLASS_VTABLE_NAME "__ZTV11OSMetaClass"
@@ -226,6 +256,10 @@ InternalLinkPrelinkedKext (
 #define VTABLE_ENTRY_SIZE_64   8U
 #define VTABLE_HEADER_LEN_64   2U
 #define VTABLE_HEADER_SIZE_64  (VTABLE_HEADER_LEN_64 * VTABLE_ENTRY_SIZE_64)
+
+#define KERNEL_ADDRESS_MASK 0xFFFFFFFF00000000ULL
+#define KERNEL_ADDRESS_BASE 0xFFFFFF8000000000ULL
+#define KERNEL_FIXUP_OFFSET BASE_1MB
 
 typedef union {
   struct {
@@ -376,7 +410,7 @@ InternalSolveSymbolValue64 (
            The state of the KEXT is undefined in case this routine fails.
 
 **/
-RETURN_STATUS
+EFI_STATUS
 InternalPrelinkKext64 (
   IN OUT PRELINKED_CONTEXT  *Context,
   IN     PRELINKED_KEXT     *Kext,

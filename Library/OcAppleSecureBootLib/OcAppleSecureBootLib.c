@@ -20,6 +20,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Protocol/AppleImg4Verification.h>
 #include <Protocol/SimpleFileSystem.h>
 
+#include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -37,6 +38,7 @@ STATIC BOOLEAN mSbAvailable = TRUE;
 STATIC UINT8   mSbPolicy             = AppleImg4SbModeMedium;
 STATIC UINT8   mSbWindowsPolicy      = 1;
 STATIC BOOLEAN mSbWindowsPolicyValid = TRUE;
+STATIC CHAR8   mSbHardwareModel[16];
 
 STATIC
 UINT8
@@ -80,35 +82,35 @@ InternalImg4GetFailureReason (
   return Reason;
 }
 
-STATIC
-BOOLEAN
-InternalGetHardwareModel (
-  OUT CHAR8  Model[16]
+EFI_STATUS
+OcAppleSecureBootBootstrapValues (
+  IN CONST CHAR8  *Model
   )
-{ 
-  //
-  // FIXME: Retrieve this value from trusted storage and expose the variable.
-  //
-  EFI_STATUS Status;
-  UINTN      DataSize;
-  CHAR8      HwModel[16];
+{
+  EFI_STATUS  Status;
 
   ASSERT (Model != NULL);
 
-  DataSize = sizeof (HwModel);
-  Status = gRT->GetVariable (
-                  L"HardwareModel",
-                  &gAppleSecureBootVariableGuid,
-                  NULL,
-                  &DataSize,
-                  &HwModel
-                  );
-  if (EFI_ERROR (Status) || HwModel[DataSize - 1] != '\0') {
-    return FALSE;
+  Status = OcAsciiSafeSPrint (
+    mSbHardwareModel,
+    sizeof (mSbHardwareModel),
+    "%aap",
+    Model
+    );
+
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
-  CopyMem (Model, HwModel, DataSize);
-  return TRUE;
+  Status = gRT->SetVariable (
+    L"HardwareModel",
+    &gAppleSecureBootVariableGuid,
+    EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+    AsciiStrSize (mSbHardwareModel),
+    mSbHardwareModel
+    );
+
+  return Status;
 }
 
 STATIC
@@ -514,7 +516,7 @@ InternalVerifyImg4Worker (
   ASSERT (ImageBuffer != NULL);
   ASSERT (ImageSize != 0);
   ASSERT (ManifestBuffer != NULL);
-  ASSERT (ManifestSize == 0);
+  ASSERT (ManifestSize > 0);
 
   if (Img4Verify == NULL) {
     Status = gBS->LocateProtocol (
@@ -579,11 +581,10 @@ InternalVerifyImg4ByPathWorker (
   VOID                            *ManifestBuffer;
   UINT32                          ManifestSize;
 
-  CHAR8                           HwModel[16];
   UINT64                          Ecid;
 
   STATIC CONST UINTN ManifestSuffixMaxSize =
-    (((ARRAY_SIZE (HwModel) - 1 + (2 * sizeof (Ecid))) * sizeof (CHAR16))
+    (((ARRAY_SIZE (mSbHardwareModel) - 1 + (2 * sizeof (Ecid))) * sizeof (CHAR16))
       + L_STR_SIZE_NT (L"...im4m"));
 
   Status = gBS->LocateDevicePath (
@@ -640,7 +641,7 @@ InternalVerifyImg4ByPathWorker (
     return EFI_NO_MEDIA;
   }
 
-  Result = InternalGetHardwareModel (HwModel);
+  Result = mSbHardwareModel[0] != '\0';
   if (Result) {
     ManifestSuffix = &Path[(ImagePathSize / sizeof (*Path)) - 1];
     if (SbPolicy == AppleImg4SbModeMedium) {
@@ -648,7 +649,7 @@ InternalVerifyImg4ByPathWorker (
         ManifestSuffix,
         ManifestSuffixMaxSize,
         L".%a.im4m",
-        HwModel
+        mSbHardwareModel
         );
     } else if (SbPolicy == AppleImg4SbModeFull) {
       Result = InternalGetApEcid (&Ecid);
@@ -657,7 +658,7 @@ InternalVerifyImg4ByPathWorker (
           ManifestSuffix,
           ManifestSuffixMaxSize,
           L".%a.%LX.im4m",
-          HwModel,
+          mSbHardwareModel,
           Ecid
           );
       }
@@ -894,11 +895,11 @@ AppleSbVerifyWindowsByPath (
 }
 
 /**
-  Verify the signature of ImageBuffer against a Microsoft certificate chain.
+  Verify the signature of TargetBuffer against a Microsoft certificate chain.
 
   @param[in] This              The pointer to the current protocol instance.
-  @param[in] ImageBuffer       The buffer to validate.
-  @param[in] ImageSize         The size, in bytes, of ImageBuffer.
+  @param[in] TargetBuffer       The buffer to validate.
+  @param[in] TargetSize        The size, in bytes, of TargetBuffer.
   @param[in] SetFailureReason  Whether to set the failure reason.
 
   @retval EFI_SUCCESS             ImageBuffer is correctly signed.
@@ -907,7 +908,7 @@ AppleSbVerifyWindowsByPath (
   @retval EFI_UNSUPPORTED         Secure Boot is currently unavailable or
                                   disabled.
   @retval EFI_ACCESS DENIED       A suiting certificate could not be found.
-  @retval EFI_SECURITY_VIOLATION  ImageBuffer's signature is invalid.
+  @retval EFI_SECURITY_VIOLATION  TargetBuffer's signature is invalid.
 
 **/
 STATIC
@@ -955,18 +956,6 @@ AppleSbVerifyWindows (
   return Status;
 }
 
-/**
-  Install and initialise the Apple Secure Boot protocol.
-
-  @param[in] Reinstall          Replace any installed protocol.
-  @param[in] SbPolicy           Apple Secure Boot Policy to install.
-  @param[in] SbWinPolicy        Apple Secure Boot Windows Policy to install.
-  @param[in] SbWinPolicyValid   Whether SbWinPolicy should be installed.
-
-  @returns Installed or located protocol.
-  @retval NULL  There was an error locating or installing the protocol.
-
-**/
 APPLE_SECURE_BOOT_PROTOCOL *
 OcAppleSecureBootInstallProtocol (
   IN BOOLEAN  Reinstall,
@@ -998,7 +987,7 @@ OcAppleSecureBootInstallProtocol (
   UINTN                      DataSize;
 
   if (Reinstall) {
-    Status = UninstallAllProtocolInstances (&gAppleSecureBootProtocolGuid);
+    Status = OcUninstallAllProtocolInstances (&gAppleSecureBootProtocolGuid);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "OCSB: Uninstall failed: %r\n", Status));
       return NULL;

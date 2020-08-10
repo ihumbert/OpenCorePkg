@@ -1,0 +1,88 @@
+BIOSVendor: "Apple Inc."
+BIOSVersion: "1037.147.4.0.0"
+# FIXME:
+BIOSLegacyVersion: ""
+# FIXME:
+BIOSReleaseDate: "07/12/2020"
+SystemManufacturer: "Apple Inc."
+SystemProductName: "iMac20,2"
+SystemVersion: "1.0"
+# Note, this one is used by macserial
+SystemSerialNumber: "000000000000"
+SystemSKUNumber: ""
+SystemFamily: "iMac"
+BoardManufacturer: "Apple Inc."
+# This and similar ones can be an array itself, like this:
+# BoardProduct:
+#  "Mac-AF89B6D9451A490B"
+#  "Mac-smthelse"
+BoardProduct: "Mac-AF89B6D9451A490B"
+BoardVersion: "iMac20,2"
+# FIXME:
+BoardRevision: 0x1
+BoardAssetTag: ""
+BoardType: 0xA
+BoardLocationInChassis: ""
+ChassisManufacturer: "Apple Inc."
+ChassisType: 0xD
+ChassisVersion: "Mac-AF89B6D9451A490B"
+ChassisAssetTag: ""
+# FIXME:
+PlatformFeature: 0x20
+# FIXME:
+FirmwareFeatures: 0xFD8FF576
+# FIXME:
+FirmwareFeaturesMask: 0xFFDFFF7F
+# FIXME:
+ExtendedFirmwareFeatures: 0x00000000FD8FF576
+# FIXME:
+ExtendedFirmwareFeaturesMask: 0x00000000FFDFFF7F
+MemoryFormFactor: 0x9
+# FIXME: Correct this one
+ProcessorType:
+  - 0x1009
+# FIXME: Correct this one
+ProcessorBusSpeed:
+  - 12345
+SmcGeneration: 3
+# FIXME: or 6a31383500000000
+SmcPlatform:
+  - 0x6a
+  - 0x31
+  - 0x38
+  - 0x35
+  - 0x66
+  - 0x00
+  - 0x00
+  - 0x00
+# FIXME:
+OEMStrings: |-
+Specifications:
+  CPUCodename:
+    - "Comet Lake"
+  CPU:
+    - "Intel Core i9-10910 @ 3.60 GHz"
+  GPU:
+    - "Radeon Pro 5300"
+    - "Radeon Pro 5500 XT"
+    - "Radeon Pro 5700"
+    - "Radeon Pro 5700 XT"
+  RAM:
+    - "8GB 2666 MHz DDR4 SDRAM"
+  SystemReportName:
+    - "iMac (Retina 5K, 27-inch, 2020)"
+  MarketingName:
+    # FIXME
+    - "iMac (Retina 5K, 27-inch, 2020)"
+# Note, first model code is used by macserial
+AppleModelCode:
+  - "0000"
+# Note, first board code is used by macserial
+AppleBoardCode:
+  - "0000"
+# Note, first year is used by macserial
+AppleModelYear:
+  - 2020
+MinimumOSVersion: "10.15.6"
+MaximumOSVersion: null
+AppleModelId: "J185F"

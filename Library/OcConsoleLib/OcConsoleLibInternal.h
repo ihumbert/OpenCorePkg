@@ -21,6 +21,9 @@
 #include <Protocol/SimpleTextOut.h>
 #include <Protocol/UgaDraw.h>
 
+#define DEFAULT_COLOUR_DEPTH 32
+#define DEFAULT_REFRESH_RATE 60
+
 typedef struct {
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
   EFI_UGA_DRAW_PROTOCOL         Uga;
@@ -60,11 +63,6 @@ OcUseSystemTextOutput (
   IN BOOLEAN                      SanitiseClearScreen,
   IN BOOLEAN                      ClearScreenOnModeSwitch,
   IN BOOLEAN                      ReplaceTabWithSpace
-  );
-
-VOID
-OcProvideUgaPassThrough (
-  VOID
   );
 
 #endif // OC_CONSOLE_LIB_INTERNAL_H

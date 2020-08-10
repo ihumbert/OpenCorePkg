@@ -16,7 +16,7 @@
 
 #include <Guid/AppleFile.h>
 #include <Guid/AppleVariable.h>
-#include <Guid/OcVariables.h>
+#include <Guid/OcVariable.h>
 
 #include <IndustryStandard/AppleCsrConfig.h>
 
@@ -172,11 +172,10 @@ OcPlayAudioBeep (
 EFI_STATUS
 OcPlayAudioEntry (
   IN     OC_PICKER_CONTEXT  *Context,
-  IN     OC_BOOT_ENTRY      *Entry,
-  IN     UINT32             Number
+  IN     OC_BOOT_ENTRY      *Entry
   )
 {
-  OcPlayAudioFile (Context, OcVoiceOverAudioFileIndexBase + Number, FALSE);
+  OcPlayAudioFile (Context, OcVoiceOverAudioFileIndexBase + Entry->EntryIndex, FALSE);
 
   if (Entry->Type == OC_BOOT_APPLE_OS) {
     OcPlayAudioFile (Context, OcVoiceOverAudioFilemacOS, FALSE);
@@ -184,6 +183,8 @@ OcPlayAudioEntry (
     OcPlayAudioFile (Context, OcVoiceOverAudioFilemacOS_Recovery, FALSE);
   } else if (Entry->Type == OC_BOOT_APPLE_TIME_MACHINE) {
     OcPlayAudioFile (Context, OcVoiceOverAudioFilemacOS_TimeMachine, FALSE);
+  } else if (Entry->Type == OC_BOOT_APPLE_FW_UPDATE) {
+    OcPlayAudioFile (Context, OcVoiceOverAudioFilemacOS_UpdateFw, FALSE);
   } else if (Entry->Type == OC_BOOT_WINDOWS) {
     OcPlayAudioFile (Context, OcVoiceOverAudioFileWindows, FALSE);
   } else if (Entry->Type == OC_BOOT_RESET_NVRAM || StrStr (Entry->Name, OC_MENU_RESET_NVRAM_ENTRY) != NULL) {
