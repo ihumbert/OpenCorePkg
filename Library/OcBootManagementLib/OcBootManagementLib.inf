@@ -41,6 +41,7 @@
   DefaultEntryChoice.c
   DmgBootSupport.c
   HotKeySupport.c
+  ImageLoader.c
   PolicyManagement.c
   OcBootManagementLib.c
   VariableManagement.c
@@ -96,16 +97,19 @@
   MemoryAllocationLib
   PrintLib
   UefiBootServicesTableLib
+  OcApfsLib
   OcAppleBootPolicyLib
   OcAppleChunklistLib
   OcAppleDiskImageLib
   OcAppleKeyMapLib
   OcAppleKeysLib
+  OcAppleSecureBootLib
   OcConsoleLib
   OcCryptoLib
   OcDevicePathLib
   OcGuardLib
   OcFileLib
+  OcMachoLib
   OcRtcLib
   OcXmlLib
   TimerLib

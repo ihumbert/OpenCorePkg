@@ -1,7 +1,7 @@
 \documentclass[]{article}
 %DIF LATEXDIFF DIFFERENCE FILE
 %DIF DEL PreviousConfiguration.tex   Sat Aug  8 20:55:30 2020
-%DIF ADD ../Configuration.tex        Mon Aug 10 11:05:50 2020
+%DIF ADD ../Configuration.tex        Sun Aug 16 23:23:14 2020
 
 \usepackage{lmodern}
 \usepackage{amssymb,amsmath}
@@ -2138,7 +2138,7 @@ blocking.
       your actual offset, and reboot.
   \end{enumerate}
 
-  \textbf{WARNING}: Variable offsets are unique not only to each motherboard but even to its firmware
+  \textbf{\DIFdelbegin \DIFdel{WARNING}\DIFdelend \DIFaddbegin \DIFadd{Warning}\DIFaddend }: Variable offsets are unique not only to each motherboard but even to its firmware
   version. Never ever try to use an offset without checking.
 
 \item
@@ -2876,7 +2876,8 @@ nvram 4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:boot-log |
   awk '{gsub(/%0d%0a%00/,"");gsub(/%0d%0a/,"\n")}1'
 \end{lstlisting}
 
-  \emph{Warning}: Some firmwares are reported to have broken NVRAM garbage collection.
+  \DIFdelbegin \emph{\DIFdel{Warning}}%DIFAUXCMD
+\DIFdelend \DIFaddbegin \textbf{\DIFadd{Warning}}\DIFaddend : Some firmwares are reported to have broken NVRAM garbage collection.
   This means that they may not be able to always free space after variable deletion.
   Do not use non-volatile NVRAM logging without extra need on such devices.
 
@@ -2992,15 +2993,18 @@ nvram 4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:boot-log |
   \textbf{\DIFadd{Description}}\DIFadd{: Apple Enclave Identifier.
 }
 
-  \DIFadd{Setting this value to any (random) non-zero 64-bit integer will allow using
-  personalised Apple Secure Boot identifiers. This value set and
-  }\texttt{\DIFadd{SecureBootModel}} \DIFadd{valid and not }\texttt{\DIFadd{Disabled}} \DIFadd{is equivalent to
-  to ahieve }\href{https://support.apple.com/en-us/HT208330}{\texttt{Full Security}}
-  \DIFadd{of Apple Secure Boot.
+  \DIFadd{Setting this value to any non-zero 64-bit integer will allow using
+  personalised Apple Secure Boot identifiers. If you want to use this setting,
+  make sure to generate a random 64-bit number with a cryptographically secure
+  random number generator. With this value set and }\texttt{\DIFadd{SecureBootModel}} \DIFadd{valid
+  and not }\texttt{\DIFadd{Disabled}} \DIFadd{it is possible to achieve
+  }\href{https://support.apple.com/en-us/HT208330}{\texttt{Full Security}} \DIFadd{of Apple
+  Secure Boot.
 }
 
-  \emph{\DIFadd{Note}}\DIFadd{: You will have to reinstall the operating system or use the recovery
-  after setting this value to non-zero.
+  \emph{\DIFadd{Note}}\DIFadd{: You will have to reinstall the operating system or use macOS recovery
+  after setting this value to non-zero. Installing the operating system with
+  }\texttt{\DIFadd{ApECID}} \DIFadd{value set to non-zero is only possible through macOS recovery.
 }
 
 \item
@@ -3051,7 +3055,7 @@ nvram 4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:boot-log |
   \DIFaddbegin \texttt{\DIFadd{DmgLoading}}\\
   \textbf{\DIFadd{Type}}\DIFadd{: }\texttt{\DIFadd{plist\ string}}\\
   \textbf{\DIFadd{Failsafe}}\DIFadd{: }\texttt{\DIFadd{Signed}}\\
-  \textbf{\DIFadd{Description}}\DIFadd{: Attempt to provide bootloader persistence.
+  \textbf{\DIFadd{Description}}\DIFadd{: Define Disk Image (DMG) loading policy used for macOS Recovery.
 }
 
   \DIFadd{Valid values:
@@ -3282,22 +3286,22 @@ rm vault.pub
   \tightlist
   \item \texttt{\DIFadd{Default}} \DIFadd{--- Recent available model, currently set to }\texttt{\DIFadd{j215}}\DIFadd{.
   }\item \texttt{\DIFadd{Disabled}} \DIFadd{--- No model, Secure Boot will be disabled.
-  }\item \texttt{\DIFadd{j137}} \DIFadd{--- }\texttt{\DIFadd{iMacPro1,1}}
-  \item \texttt{\DIFadd{j680}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,1}}
-  \item \texttt{\DIFadd{j132}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,2}}
-  \item \texttt{\DIFadd{j174}} \DIFadd{--- }\texttt{\DIFadd{Macmini8,1}}
-  \item \texttt{\DIFadd{j140k}} \DIFadd{--- }\texttt{\DIFadd{MacBookAir8,1}}
-  \item \texttt{\DIFadd{j780}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,3}}
-  \item \texttt{\DIFadd{j213}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,4}}
-  \item \texttt{\DIFadd{j140a}} \DIFadd{--- }\texttt{\DIFadd{MacBookAir8,2}}
-  \item \texttt{\DIFadd{j152f}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,1}}
-  \item \texttt{\DIFadd{j160}} \DIFadd{--- }\texttt{\DIFadd{MacPro7,1}}
-  \item \texttt{\DIFadd{j230k}} \DIFadd{--- }\texttt{\DIFadd{MacBookAir9,1}}
-  \item \texttt{\DIFadd{j214k}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,2}}
-  \item \texttt{\DIFadd{j223}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,3}}
-  \item \texttt{\DIFadd{j215}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,4}}
-  \item \texttt{\DIFadd{j185}} \DIFadd{--- }\texttt{\DIFadd{iMac20,1}}
-  \item \texttt{\DIFadd{j185f}} \DIFadd{--- }\texttt{\DIFadd{iMac20,2}}
+  }\item \texttt{\DIFadd{j137}} \DIFadd{--- }\texttt{\DIFadd{iMacPro1,1 (December 2017)}}
+  \item \texttt{\DIFadd{j680}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,1 (July 2018)}}
+  \item \texttt{\DIFadd{j132}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,2 (July 2018)}}
+  \item \texttt{\DIFadd{j174}} \DIFadd{--- }\texttt{\DIFadd{Macmini8,1 (October 2018)}}
+  \item \texttt{\DIFadd{j140k}} \DIFadd{--- }\texttt{\DIFadd{MacBookAir8,1 (October 2018)}}
+  \item \texttt{\DIFadd{j780}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,3 (May 2019)}}
+  \item \texttt{\DIFadd{j213}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro15,4 (July 2019)}}
+  \item \texttt{\DIFadd{j140a}} \DIFadd{--- }\texttt{\DIFadd{MacBookAir8,2 (July 2019)}}
+  \item \texttt{\DIFadd{j152f}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,1 (November 2019)}}
+  \item \texttt{\DIFadd{j160}} \DIFadd{--- }\texttt{\DIFadd{MacPro7,1 (December 2019)}}
+  \item \texttt{\DIFadd{j230k}} \DIFadd{--- }\texttt{\DIFadd{MacBookAir9,1 (March 2020)}}
+  \item \texttt{\DIFadd{j214k}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,2 (May 2020)}}
+  \item \texttt{\DIFadd{j223}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,3 (May 2020)}}
+  \item \texttt{\DIFadd{j215}} \DIFadd{--- }\texttt{\DIFadd{MacBookPro16,4 (June 2020)}}
+  \item \texttt{\DIFadd{j185}} \DIFadd{--- }\texttt{\DIFadd{iMac20,1 (August 2020)}}
+  \item \texttt{\DIFadd{j185f}} \DIFadd{--- }\texttt{\DIFadd{iMac20,2 (August 2020)}}
   \end{itemize}
 
   \texttt{\DIFadd{PlatformInfo}} \DIFadd{and }\texttt{\DIFadd{SecureBootModel}} \DIFadd{are independent,
@@ -3474,7 +3478,7 @@ use.
   scripts may require \texttt{ExposeSensitiveData} set to \texttt{0x3} to provide
   \texttt{boot-path} variable with OpenCore EFI partition UUID.
 
-  \textbf{WARNING}: This feature is very dangerous as it passes unprotected data to your
+  \textbf{\DIFdelbegin \DIFdel{WARNING}\DIFdelend \DIFaddbegin \DIFadd{Warning}\DIFaddend }: This feature is very dangerous as it passes unprotected data to your
   firmware variable services. Use it only when no hardware NVRAM implementation is provided
   by the firmware or it is incompatible.
 
@@ -3520,7 +3524,8 @@ A continuously updated variable list can be found in a corresponding document:
 
 \subsection{Mandatory Variables}\label{nvramvars}
 
-\emph{Warning}: These variables may be added by
+\DIFdelbegin \emph{\DIFdel{Warning}}%DIFAUXCMD
+\DIFdelend \DIFaddbegin \textbf{\DIFadd{Warning}}\DIFaddend : These variables may be added by
 \hyperref[platforminfonvram]{PlatformNVRAM} or
 \hyperref[platforminfogeneric]{Generic} subsections of
 \hyperref[platforminfo]{PlatformInfo} section.
@@ -3867,7 +3872,15 @@ be used. Version with macOS specific enhancements can be downloaded from
   \texttt{PlatformNVRAM} data is unused.
   \item When disabled \texttt{Generic} section is unused.
   \end{itemize}
-\item
+\DIFaddbegin 
+
+  \textbf{\DIFadd{Warning}}\DIFadd{: It is strongly discouraged set this option to }\texttt{\DIFadd{false}}
+  \DIFadd{when intending to update platform information. The only reason to do that is
+  when doing minor correction of the SMBIOS present and alike. In all other
+  cases not using }\texttt{\DIFadd{Automatic}} \DIFadd{may lead to hard to debug errors.
+}
+
+\DIFaddend \item
   \texttt{UpdateDataHub}\\
   \textbf{Type}: \texttt{plist\ boolean}\\
   \textbf{Failsafe}: \texttt{false}\\
@@ -4723,12 +4736,16 @@ While there are many utilities to generate font files, currently it is recommend
 (\href{https://github.com/danpla/dpfontbaker/pull/1}{using CoreText produces best results})
 and \href{https://github.com/usr-sse2/fonverter}{fonverter} to export it to binary format.
 
-\emph{WARNING}: OpenCanopy is currently considered experimental and is not recommended for
+\DIFdelbegin \emph{\DIFdel{WARNING}}%DIFAUXCMD
+\DIFdel{: OpenCanopy is currently considered experimental and is not recommended for
 everyday use. Refer to
-\href{https://github.com/acidanthera/bugtracker/issues/759}{acidanthera/bugtracker\#759}
-for more details regarding the current limitations.
+}%DIFDELCMD < \href{https://github.com/acidanthera/bugtracker/issues/759}{acidanthera/bugtracker\#759}
+%DIFDELCMD < %%%
+\DIFdel{for more details regarding the current limitations.
+}%DIFDELCMD < 
 
-\subsection{OpenRuntime}\label{uefiruntime}
+%DIFDELCMD < %%%
+\DIFdelend \subsection{OpenRuntime}\label{uefiruntime}
 
 \texttt{OpenRuntime} is an OpenCore plugin implementing \texttt{OC\_FIRMWARE\_RUNTIME} protocol.
 This protocol implements multiple features required for OpenCore that are otherwise not possible
@@ -5228,7 +5245,10 @@ functioning. Feature highlights:
   \item \texttt{BuiltinGraphics} --- Switch to \texttt{Graphics}
     mode and use \texttt{Builtin} renderer with
     custom \texttt{ConsoleControl}.
-  \item \texttt{SystemGraphics} --- Switch to \texttt{Graphics}
+  \item \DIFaddbegin \texttt{\DIFadd{BuiltinText}} \DIFadd{--- Switch to }\texttt{\DIFadd{Text}}
+    \DIFadd{mode and use }\texttt{\DIFadd{Builtin}} \DIFadd{renderer with
+    custom }\texttt{\DIFadd{ConsoleControl}}\DIFadd{.
+  }\item \DIFaddend \texttt{SystemGraphics} --- Switch to \texttt{Graphics}
     mode and use \texttt{System} renderer with
     custom \texttt{ConsoleControl}.
   \item \texttt{SystemText} --- Switch to \texttt{Text}
@@ -5240,7 +5260,10 @@ functioning. Feature highlights:
 
   The use of \texttt{BuiltinGraphics} is generally straightforward.
   For most platforms it is necessary to enable \texttt{ProvideConsoleGop},
-  set \texttt{Resolution} to \texttt{Max}.
+  set \texttt{Resolution} to \texttt{Max}. \DIFaddbegin \texttt{\DIFadd{BuiltinText}} \DIFadd{variant is
+  an alternative }\texttt{\DIFadd{BuiltinGraphics}} \DIFadd{for some very old and buggy laptop
+  firmwares, which can only draw in }\texttt{\DIFadd{Text}} \DIFadd{mode.
+}\DIFaddend 
 
   The use of \texttt{System} protocols is more complicated. In general
   the preferred setting is \texttt{SystemGraphics} or \texttt{SystemText}.
