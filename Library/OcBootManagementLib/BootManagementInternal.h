@@ -26,6 +26,46 @@
 
 #define OC_CUSTOM_FS_HANDLE ((EFI_HANDLE)(UINTN) 0x2007C5F5U)
 
+///
+/// Identifies the DevicePath structure for OpenCore custom entries.
+///
+#define OC_CUSTOM_BOOT_DEVICE_PATH_GUID  \
+  { 0xd6f263f9, 0x0b19, 0x4670,          \
+    { 0xb0, 0xa4, 0x9d, 0x95, 0x9f, 0x58, 0xdf, 0x65 } }
+
+#pragma pack(1)
+
+///
+/// DevicePath to describe OpenCore custom entries.
+///
+typedef PACKED struct {
+  VENDOR_DEVICE_PATH   Hdr;
+  FILEPATH_DEVICE_PATH EntryName;
+} OC_CUSTOM_BOOT_DEVICE_PATH;
+
+//
+// Ideally, a variant of FILEPATH_DEVICE_PATH will be used with PathName as a
+// flexible array. Such cannot be used for declarations, so provide an
+// alternative.
+//
+typedef PACKED struct {
+  VENDOR_DEVICE_PATH       Header;
+  EFI_DEVICE_PATH_PROTOCOL EntryName;
+} OC_CUSTOM_BOOT_DEVICE_PATH_DECL;
+
+#pragma pack()
+
+///
+/// The size of a OC_CUSTOM_BOOT_DEVICE_PATH structure excluding the name.
+///
+#define SIZE_OF_OC_CUSTOM_BOOT_DEVICE_PATH  \
+  (sizeof (VENDOR_DEVICE_PATH) + SIZE_OF_FILEPATH_DEVICE_PATH)
+
+//
+// Max. supported Apple version string size
+//
+#define OC_APPLE_VERSION_MAX_SIZE (16)
+
 typedef struct {
   EFI_DEVICE_PATH_PROTOCOL       *DevicePath;
   OC_APPLE_DISK_IMAGE_CONTEXT    *DmgContext;
@@ -67,6 +107,13 @@ InternalGetAppleDiskLabel (
   IN  CONST CHAR16                     *LabelFilename
   );
 
+CHAR8 *
+InternalGetContentFlavour (
+  IN  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *FileSystem,
+  IN  CONST CHAR16                     *BootDirectoryName,
+  IN  CONST CHAR16                     *FlavourFilename
+  );
+
 EFI_STATUS
 InternalGetAppleImage (
   IN  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *FileSystem,
@@ -74,12 +121,6 @@ InternalGetAppleImage (
   IN  CONST CHAR16                     *LabelFilename,
   OUT VOID                             **ImageData,
   OUT UINT32                           *DataSize
-  );
-
-CHAR16 *
-InternalGetAppleRecoveryName (
-  IN  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *FileSystem,
-  IN  CONST CHAR16                     *BootDirectoryName
   );
 
 EFI_STATUS
@@ -101,6 +142,7 @@ InternalLoadBootEntry (
 UINT16 *
 InternalGetBootOrderForBooting (
   IN  EFI_GUID  *BootVariableGuid,
+  IN  BOOLEAN   BlacklistAppleUpdate,
   OUT UINTN     *BootOrderCount
   );
 
@@ -111,37 +153,31 @@ InternalDebugBootEnvironment (
   IN UINTN                    BootOrderCount
   );
 
-/**
-  Retrieves booting relevant data from an UEFI Boot#### option.
-  If BootName is NULL, a BDS-style process is assumed and inactive as well as
-  non-Boot type applications are ignored.
-
-  @param[in]  BootOption        The boot option's index.
-  @param[out] BootName          On output, the boot option's description.
-  @param[out] OptionalDataSize  On output, the optional data size.
-  @param[out] OptionalData      On output, a pointer to the optional data.
-
-  @returns Device path allocated from pool or NULL.
-**/
-EFI_DEVICE_PATH_PROTOCOL *
+EFI_LOAD_OPTION *
 InternalGetBootOptionData (
-  IN  UINT16   BootOption,
-  IN  EFI_GUID *BootGuid,
-  OUT CHAR16   **BootName  OPTIONAL,
-  OUT UINT32   *OptionalDataSize  OPTIONAL,
-  OUT VOID     **OptionalData  OPTIONAL
+  OUT UINTN           *OptionSize,
+  IN  UINT16          BootOption,
+  IN  CONST EFI_GUID  *BootGuid
+  );
+
+EFI_DEVICE_PATH_PROTOCOL *
+InternalGetBootOptionPath (
+  IN EFI_LOAD_OPTION  *LoadOption,
+  IN UINTN            LoadOptionSize
   );
 
 /**
   Describe boot entry contents by setting fields other than DevicePath.
 
-  @param[in]  BootEntry  Located boot entry.
+  @param[in]      BootContext   Boot context.
+  @param[in,out]  BootEntry     Located boot entry.
 
   @retval EFI_SUCCESS   The entry point is described successfully.
 **/
 EFI_STATUS
 InternalDescribeBootEntry (
-  IN OUT OC_BOOT_ENTRY  *BootEntry
+  IN     OC_BOOT_CONTEXT  *BootContext,
+  IN OUT OC_BOOT_ENTRY    *BootEntry
   );
 
 BOOLEAN
@@ -177,13 +213,27 @@ InternalSystemActionResetNvram (
   );
 
 /**
-  Initialises custom gBS->LoadImage override.
-
-  @retval EFI_SUCCESS on success.
+  Toggles SIP.
 **/
 EFI_STATUS
-InternalInitImageLoader (
+InternalSystemActionToggleSip (
   VOID
+  );
+
+/**
+  Determines whether DevicePath is an OpenCore custom boot entry.
+
+  @returns  The OpenCore custom boot entry, or NULL.
+**/
+CONST OC_CUSTOM_BOOT_DEVICE_PATH *
+InternalGetOcCustomDevPath (
+  IN CONST EFI_DEVICE_PATH_PROTOCOL  *DevicePath
+  );
+
+EFI_STATUS
+InternalRunRequestPrivilege (
+  IN OC_PICKER_CONTEXT   *PickerContext,
+  IN OC_PRIVILEGE_LEVEL  Level
   );
 
 #endif // BOOT_MANAGEMENET_INTERNAL_H

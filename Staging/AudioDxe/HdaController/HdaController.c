@@ -380,10 +380,10 @@ HdaControllerScanCodecs (
   IN HDA_CONTROLLER_DEV *HdaControllerDev
   )
 {
-  DEBUG((DEBUG_VERBOSE, "HdaControllerScanCodecs(): start\n"));
+  DEBUG ((DEBUG_VERBOSE, "HdaControllerScanCodecs(): start\n"));
 
   EFI_STATUS            Status;
-  EFI_PCI_IO_PROTOCOL   *PciIo = HdaControllerDev->PciIo;
+  EFI_PCI_IO_PROTOCOL   *PciIo;
   UINT16                HdaStatests;
   EFI_HDA_IO_VERB_LIST  HdaCodecVerbList;
   UINT32                VendorVerb;
@@ -398,6 +398,8 @@ HdaControllerScanCodecs (
   if (HdaControllerDev == NULL) {
     return EFI_INVALID_PARAMETER;
   }
+
+  PciIo = HdaControllerDev->PciIo;
 
   //
   // Get STATESTS register.
@@ -674,9 +676,10 @@ HdaControllerInstallProtocols (
     return EFI_OUT_OF_RESOURCES;
   }
 
-  HdaControllerInfoData->Signature                  = HDA_CONTROLLER_PRIVATE_DATA_SIGNATURE;
-  HdaControllerInfoData->HdaControllerDev           = HdaControllerDev;
-  HdaControllerInfoData->HdaControllerInfo.GetName  = HdaControllerInfoGetName;
+  HdaControllerInfoData->Signature                     = HDA_CONTROLLER_PRIVATE_DATA_SIGNATURE;
+  HdaControllerInfoData->HdaControllerDev              = HdaControllerDev;
+  HdaControllerInfoData->HdaControllerInfo.GetName     = HdaControllerInfoGetName;
+  HdaControllerInfoData->HdaControllerInfo.GetVendorId = HdaControllerInfoGetVendorId;
 
   //
   // Install protocols.

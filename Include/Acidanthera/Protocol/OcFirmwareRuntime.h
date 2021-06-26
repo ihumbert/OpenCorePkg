@@ -17,7 +17,7 @@
 
 #include <Uefi.h>
 
-#define OC_FIRMWARE_RUNTIME_REVISION 11
+#define OC_FIRMWARE_RUNTIME_REVISION 12
 
 /**
   OC_FIRMWARE_RUNTIME_PROTOCOL_GUID
@@ -46,7 +46,7 @@ typedef struct OC_FWRT_CONFIG_ {
   BOOLEAN  WriteProtection;
   ///
   /// Make UEFI runtime services drop CR0 WP bit on calls to allow writing
-  /// to read only memory. This workarounds a bug in many APTIO firmwares
+  /// to read only memory. This workarounds a bug in many types of APTIO firmware
   /// that do not survive W^X.
   /// Latest Windows brings Virtualization-based security and monitors
   /// CR0 by launching itself under a hypevisor. Since we need WP disable
@@ -109,6 +109,24 @@ EFI_STATUS
   );
 
 /**
+  Activate gRT->SetVirtualAddressMap routing.
+
+  @param[in] SetAddressMap  Custom address map handler, optional.
+  @param[in] Enabled        Enable custom handler on call.
+
+  @retval EFI_SUCCESS when SetAddressMap was set for the first time.
+  @retval EFI_NOT_FOUND when calling without SetAddressMap for the first time.
+  @retval EFI_ALREADY_STARTED when SetAddressMap was already set but passed again.
+  @retval EFI_SUCCESS when Enabled was updated with new value.
+**/
+typedef
+EFI_STATUS
+(EFIAPI *OC_FWRT_ON_SET_ADDRESS_MAP) (
+  IN  EFI_SET_VIRTUAL_ADDRESS_MAP  SetAddressMap  OPTIONAL,
+  IN  BOOLEAN                      Enabled
+  );
+
+/**
   Obtain area that needs to be executable in OS runtime.
 
   @param[out]  BaseAddress   Executable area start.
@@ -134,6 +152,7 @@ typedef struct {
   OC_FWRT_SET_MAIN_CONFIG      SetMain;
   OC_FWRT_SET_OVERRIDE_CONFIG  SetOverride;
   OC_FWRT_ON_GET_VARIABLE      OnGetVariable;
+  OC_FWRT_ON_SET_ADDRESS_MAP   OnSetAddressMap;
   OC_FWRT_GET_EXEC_AREA        GetExecArea;
 } OC_FIRMWARE_RUNTIME_PROTOCOL;
 

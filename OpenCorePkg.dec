@@ -26,6 +26,7 @@
   Include/Generic
   Include/Intel
   Include/Microsoft
+  Include/Nvidia
   Include/VMware
 
 [Includes.AArch64]
@@ -35,6 +36,7 @@
   # Include/Generic/AArch64
   # Include/Intel/AArch64
   # Include/Microsoft/AArch64
+  # Include/Nvidia/AArch64
   # Include/VMware/AArch64
 
 [Includes.Arm]
@@ -44,6 +46,7 @@
   # Include/Generic/Arm
   # Include/Intel/Arm
   # Include/Microsoft/Arm
+  # Include/Nvidia/Arm
   # Include/VMware/Arm
 
 [Includes.Ebc]
@@ -53,6 +56,7 @@
   # Include/Generic/Ebc
   # Include/Intel/Ebc
   # Include/Microsoft/Ebc
+  # Include/Nvidia/Ebc
   # Include/VMware/Ebc
 
 [Includes.Ia32]
@@ -62,6 +66,7 @@
   # Include/Generic/Ia32
   # Include/Intel/Ia32
   # Include/Microsoft/Ia32
+  # Include/Nvidia/Ia32
   # Include/VMware/Ia32
 
 [Includes.X64]
@@ -71,6 +76,7 @@
   # Include/Generic/X64
   # Include/Intel/X64
   # Include/Microsoft/X64
+  # Include/Nvidia/X64
   # Include/VMware/X64
 
 [Guids]
@@ -360,6 +366,9 @@
   gAppleFsbFrequencyPlatformInfoGuid         = { 0xD1A04D55, 0x75B9, 0x41A3, { 0x90, 0x36, 0x8F, 0x4A, 0x26, 0x1C, 0xBB, 0xA2 }}
 
   ## Include/Apple/Guid/ApplePlatformInfo.h
+  gAppleFsbFrequencyListPlatformInfoGuid     = { 0xF55EE371, 0xD19E, 0x4AAA, { 0xA9, 0x7B, 0xC1, 0xB1, 0x28, 0x4C, 0xB3, 0x7C }}
+
+  ## Include/Apple/Guid/ApplePlatformInfo.h
   gAppleKeyboardPlatformInfoGuid             = { 0x51871CB9, 0xE25D, 0x44B4, { 0x96, 0x99, 0x0E, 0xE8, 0x64, 0x4C, 0xED, 0x69 }}
 
   ## Include/Apple/Guid/ApplePlatformInfo.h
@@ -391,9 +400,6 @@
 
   ## Include/Apple/Guid/AppleDataHub.h
   gAppleMachinePersonalityDataRecordGuid     = { 0x2B6C7ADE, 0xC5DA, 0x474B, { 0xBA, 0x42, 0x06, 0xBD, 0xDD, 0x4E, 0x34, 0x97 }}
-
-  ## Include/Apple/Guid/AppleDataHub.h
-  gAppleFsbFrequencyDataRecordGuid           = { 0xD1A04D55, 0x75B9, 0x41A3, { 0x90, 0x36, 0x8F, 0x4A, 0x26, 0x1C, 0xBB, 0xA2 }}
 
   ## Include/Apple/Guid/AppleDataHub.h
   gAppleBoardIdDataRecordGuid                = { 0xB459BF16, 0x14ED, 0x5131, { 0x92, 0xB4, 0x5E, 0x19, 0xF0, 0x5B, 0xC0, 0xAD }}
@@ -462,7 +468,10 @@
   gMicrosoftVariableGuid                     = { 0x77FA9ABD, 0x0359, 0x4D32, { 0xBD, 0x60, 0x28, 0xF4, 0xE7, 0x8F, 0x78, 0x4B }}
 
 [Protocols]
-  ## Include/Acidanthera/Protocol/Audio.h
+  ## Include/Acidanthera/Protocol/AudioDecode.h
+  gEfiAudioDecodeProtocolGuid                = { 0xAF3F6C23, 0x8132, 0x4880, { 0xB3, 0x29, 0x04, 0x8D, 0xF7, 0x1D, 0xD8, 0x6A }}
+
+  ## Include/Acidanthera/Protocol/AudioIo.h
   gEfiAudioIoProtocolGuid                    = { 0xF05B559C, 0x1971, 0x4AF5, { 0xB2, 0xAE, 0xD6, 0x08, 0x08, 0xF7, 0x4F, 0x70 }}
 
   ## Include/Acidanthera/Protocol/HdaCodecInfo.h
@@ -492,14 +501,26 @@
   ## Include/Acidanthera/Protocol/OcFirmwareRuntime.h
   gOcFirmwareRuntimeProtocolGuid             = { 0x570332E4, 0xFC50, 0x4B21, { 0xAB, 0xE8, 0xAE, 0x72, 0xF0, 0x5B, 0x4F, 0xF7 }}
 
+  ## Include/Acidanthera/Protocol/OcForceResolution.h
+  gOcForceResolutionProtocolGuid             = { 0xBC7EC589, 0x2390, 0x4DA3, { 0x80, 0x25, 0x77, 0xDA, 0xD3, 0x4F, 0x36, 0x09 }}
+
   ##  Include/AMI/Protocol/AmiPointer.h
   gAmiEfiPointerProtocolGuid                 = { 0x15A10CE7, 0xEAB5, 0x43BF, { 0x90, 0x42, 0x74, 0x43, 0x2E, 0x69, 0x63, 0x77 }}
 
   ##  Include/AMI/Protocol/AmiKeycode.h
   gAmiEfiKeycodeProtocolGuid                 = { 0x0ADFB62D, 0xFF74, 0x484C, { 0x89, 0x44, 0xF8, 0x5C, 0x4B, 0xEA, 0x87, 0xA8 }}
 
+  ##  Include/AMI/Protocol/AmiSoftKbd.h
+  gAmiSoftKbdProtocolGuid                    = { 0x96FD60F3, 0x0BC8, 0x4A11, { 0x84, 0xF1, 0x2E, 0xB1, 0xCB, 0x5B, 0xA5, 0xA3 }}
+
+  ##  Include/AMI/Protocol/AmiSoftKbdRestore.h
+  gAmiSoftKbdRestoreProtocolGuid             = { 0x890DF583, 0x0D14, 0x4C82, { 0x99, 0x6D, 0xE5, 0xEA, 0xE8, 0xCA, 0x90, 0x5E }}
+
   ## Include/Intel/Protocol/ConsoleControl.h
   gEfiConsoleControlProtocolGuid             = { 0xF42F7782, 0x012E, 0x4C12, { 0x99, 0x56, 0x49, 0xF9, 0x43, 0x04, 0xF7, 0x21 }}
+
+  ## Include/Intel/Protocol/CpuIo.h
+  gEfiCpuIoProtocolGuid                      = { 0xB0732526, 0x38C8, 0x4b40, { 0x88, 0x77, 0x61, 0xC7, 0xB0, 0x6A, 0xAC, 0x45 }}
 
   ## Include/Intel/Protocol/DataHub.h
   gEfiDataHubProtocolGuid                    = { 0xAE80D021, 0x618E, 0x11D4, { 0xBC, 0xD7, 0x00, 0x80, 0xC7, 0x3C, 0x88, 0x81 }}
@@ -545,6 +566,9 @@
 
   ## Include/Apple/Protocol/AppleDmgBoot.h
   gAppleDmgBootProtocolGuid                  = { 0x85290934, 0x28DC, 0x4DF5, { 0x91, 0x9A, 0x60, 0xE2, 0x8B, 0x1B, 0x94, 0x49 }}
+
+  ## Include/Apple/Protocol/AppleEg2Info.h
+  gAppleEg2InfoProtocolGuid                  = { 0x63FAECF2, 0xE7EE, 0x4CB9, { 0x8A, 0x0C, 0x11, 0xCE, 0x5E, 0x89, 0xE3, 0x3C }}
 
   ## Include/Apple/Protocol/AppleEvent.h
   gAppleEventProtocolGuid                    = { 0x33BE0EF1, 0x89C9, 0x4A6D, { 0xBB, 0x9F, 0x69, 0xDC, 0x8D, 0xD5, 0x16, 0xB9 }}
@@ -621,6 +645,9 @@
   ## Include/Apple/Protocol/AppleDiag.h
   gAppleDiagVaultProtocolGuid                = { 0xF76761DC, 0xFF89, 0x44E4, { 0x9C, 0x0C, 0xCD, 0x0A, 0xDA, 0x4E, 0xF9, 0x83 }}
 
+  ## Include/Apple/Protocol/AppleDiagLed.h
+  gAppleDiagLedProtocolGuid                  = { 0xA9FBF34B, 0xE2A2, 0x41D1, { 0xBA, 0x00, 0xA2, 0x74, 0xA5, 0x5C, 0xD1, 0x64 }}
+
   ## Include/Apple/Protocol/AppleRemovableMedia.h
   gAppleRemovableMediaProtocolGuid           = { 0x2EA9743A, 0x23D9, 0x425E, { 0x87, 0x2C, 0xF6, 0x15, 0xAA, 0x19, 0x57, 0x88 }}
 
@@ -645,8 +672,14 @@
   ##  Include/Apple/Protocol/AppleSystemInfo.h
   gAppleSystemInfoProtocolGuid               = { 0x82ED9A9E, 0xCCBB, 0x4CD2, { 0x8A, 0x94, 0xF4, 0xE3, 0x55, 0x9A, 0xF9, 0x11 }}
 
+  ##  Include/VMware/Protocol/VMwareDebug.h
+  gVMwareDebugProtocolGuid                   = { 0x5127A9FE, 0x2274, 0x451D, { 0x90, 0xAA, 0xCB, 0xE8, 0x44, 0xCF, 0x55, 0x71 }}
+
   ##  Include/VMware/Protocol/VMwareHda.h
-  gVMwareHdaProtocolGuid            = { 0x94E46BC2, 0x9127, 0x11DF, { 0xBF, 0xCE, 0xE7, 0x83, 0xCA, 0x2A, 0x34, 0xBE }}
+  gVMwareHdaProtocolGuid                     = { 0x94E46BC2, 0x9127, 0x11DF, { 0xBF, 0xCE, 0xE7, 0x83, 0xCA, 0x2A, 0x34, 0xBE }}
+
+  ##  Include/VMware/Protocol/VMwareMac.h
+  gVMwareMacProtocolGuid                     = { 0x03F38E56, 0x8231, 0x4469, { 0x94, 0xED, 0x82, 0xAE, 0x53, 0x15, 0x83, 0x4F }}
 
 [PcdsFeatureFlag]
   ## Indicates if Apple Thunderbolt NHI protocol is called during device property export.<BR><BR>
@@ -702,6 +735,14 @@
   ## @Prompt Allow these signature hashing algorithms for cryptographic usage.
   gOpenCorePkgTokenSpaceGuid.PcdOcCryptoAllowedSigHashTypes|0x07|UINT16|0x00000501
 
+  gOpenCorePkgTokenSpaceGuid.PcdImageLoaderRtRelocAllowTargetMismatch|FALSE|BOOLEAN|0x00000600
+  gOpenCorePkgTokenSpaceGuid.PcdImageLoaderHashProhibitOverlap|TRUE|BOOLEAN|0x00000601
+  gOpenCorePkgTokenSpaceGuid.PcdImageLoaderLoadHeader|TRUE|BOOLEAN|0x00000602
+  gOpenCorePkgTokenSpaceGuid.PcdImageLoaderSupportArmThumb|FALSE|BOOLEAN|0x00000603
+  gOpenCorePkgTokenSpaceGuid.PcdImageLoaderForceLoadDebug|FALSE|BOOLEAN|0x00000604
+  gOpenCorePkgTokenSpaceGuid.PcdImageLoaderTolerantLoad|TRUE|BOOLEAN|0x00000605
+  gOpenCorePkgTokenSpaceGuid.PcdImageLoaderSupportDebug|FALSE|BOOLEAN|0x00000606
+
 [LibraryClasses]
   ##  @libraryclass
   OcAcpiLib|Include/Acidanthera/Library/OcAcpiLib.h
@@ -728,9 +769,6 @@
   OcAppleImageConversionLib|Include/Acidanthera/Library/OcAppleImageConversionLib.h
 
   ##  @libraryclass
-  OcAppleImageVerificationLib|Include/Acidanthera/Library/OcAppleImageVerificationLib.h
-
-  ##  @libraryclass
   OcAppleImg4Lib|Include/Acidanthera/Library/OcAppleImg4Lib.h
 
   ##  @libraryclass
@@ -753,6 +791,9 @@
 
   ##  @libraryclass
   OcAudioLib|Include/Acidanthera/Library/OcAudioLib.h
+
+  ##  @libraryclass
+  OcBlitLib|Include/Acidanthera/Library/OcBlitLib.h
 
   ##  @libraryclass
   OcBootManagementLib|Include/Acidanthera/Library/OcBootManagementLib.h
@@ -780,6 +821,9 @@
 
   ##  @libraryclass
   OcDebugLogLib|Include/Acidanthera/Library/OcDebugLogLib.h
+
+  ##  @libraryclass
+  OcDeviceMiscLib|Include/Acidanthera/Library/OcDeviceMiscLib.h
 
   ##  @libraryclass
   OcDevicePathLib|Include/Acidanthera/Library/OcDevicePathLib.h
@@ -815,16 +859,28 @@
   OcInputLib|Include/Acidanthera/Library/OcInputLib.h
 
   ##  @libraryclass
+  OcMainLib|Include/Acidanthera/Library/OcMainLib.h
+
+  ##  @libraryclass
   OcMachoLib|Include/Acidanthera/Library/OcMachoLib.h
 
   ##  @libraryclass
   OcMemoryLib|Include/Acidanthera/Library/OcMemoryLib.h
 
   ##  @libraryclass
+  OcMp3Lib|Include/Acidanthera/Library/OcMp3Lib.h
+
+  ##  @libraryclass
   OcMiscLib|Include/Acidanthera/Library/OcMiscLib.h
 
   ##  @libraryclass
   OcOSInfoLib|Include/Acidanthera/Library/OcOSInfoLib.h
+
+  ##  @libraryclass
+  OcPeCoffExtLib|Include/Acidanthera/Library/OcPeCoffExtLib.h
+
+  ##  @libraryclass
+  OcPeCoffLib|Include/Acidanthera/Library/OcPeCoffLib.h
 
   ##  @libraryclass
   OcPngLib|Include/Acidanthera/Library/OcPngLib.h
@@ -861,6 +917,9 @@
 
   ##  @libraryclass
   OcVirtualFsLib|Include/Acidanthera/Library/OcVirtualFsLib.h
+
+  ##  @libraryclass
+  OcWaveLib|Include/Acidanthera/Library/OcWaveLib.h
 
   ##  @libraryclass
   OcXmlLib|Include/Acidanthera/Library/OcXmlLib.h

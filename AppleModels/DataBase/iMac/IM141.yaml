@@ -1,7 +1,7 @@
 BIOSVendor: "Apple Inc."
-BIOSVersion: "146.0.0.0.0"
-BIOSLegacyVersion: "IM141.88Z.F000.B00.2006101806"
-BIOSReleaseDate: "06/10/2020"
+BIOSVersion: "431.0.0.0.0"
+BIOSLegacyVersion: "IM141.88Z.F000.B00.2102221736"
+BIOSReleaseDate: "02/22/2021"
 SystemManufacturer: "Apple Inc."
 SystemProductName: "iMac14,1"
 SystemVersion: "1.0"
@@ -24,16 +24,11 @@ ChassisType: 0xD
 ChassisVersion: "Mac-031B6874CF7F642A"
 ChassisAssetTag: ""
 PlatformFeature: 0x1
-# FIXME: check
-FirmwareFeatures: 0xE00FE137
-# FIXME: check
-FirmwareFeaturesMask: 0xFF1FFF3F
-# FIXME: check
-ExtendedFirmwareFeatures: 0x00000000E00FE137
-# FIXME: check
-ExtendedFirmwareFeaturesMask: 0x00000000FF1FFF3F
+FirmwareFeatures: 0xFB0FF577
+FirmwareFeaturesMask: 0xFF1FFF7F
+ExtendedFirmwareFeatures: 0x00000000FB0FF577
+ExtendedFirmwareFeaturesMask: 0x00000000FF1FFF7F
 MemoryFormFactor: 0x9
-# FIXME: check values (most should be correct?) and add missing, if any
 ProcessorType:
   - 0x0605
 # FIXME: Correct this one
@@ -74,13 +69,13 @@ SmcEPCI: 0x79007
 OEMStrings: |-
   Apple ROM Version
     Model:        IM141
-    EFI Version:  146.0.0.0.0
-    Built by:     root@saumon
-    Date:         Wed Jun 10 18:06:53 PDT 2020
-    Revision:     146 (B&I)
+    EFI Version:  431.0.0.0.0
+    Built by:     root@bb-g9-pdb78
+    Date:         Mon Feb 22 17:36:18 PST 2021
+    Revision:     431 (B&I)
     ROM Version:  F000_B00
     Build Type:   Official Build, Release
-    Compiler:     Apple clang version 3.0 (tags/Apple/clang-211.10.1) (based on LLVM 3.0svn)
+    Compiler:     clang-1205.0.19.59.6
 Specifications:
   CPUCodename:
     - "Crystal Well"
@@ -128,4 +123,4 @@ AppleModelYear:
   - 2015
 CloverSerialNumber: "D25LHACKF8J2"
 MinimumOSVersion: "10.8.4"
-MaximumOSVersion: "10.15.6"
+MaximumOSVersion: "10.15.7"

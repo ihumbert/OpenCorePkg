@@ -30,30 +30,12 @@
 ///
 /// OC_BOOTSTRAP_PROTOCOL revision
 ///
-#define OC_BOOTSTRAP_PROTOCOL_REVISION 6
+#define OC_BOOTSTRAP_PROTOCOL_REVISION 7
 
 ///
 /// Forward declaration of OC_BOOTSTRAP_PROTOCOL structure.
 ///
 typedef struct OC_BOOTSTRAP_PROTOCOL_ OC_BOOTSTRAP_PROTOCOL;
-
-/**
-  Restart OpenCore at specified file system.
-
-  @param[in] This           This protocol.
-  @param[in] FileSystem     File system to bootstrap in.
-  @param[in] LoadPath       EFI device path to loaded image.
-
-  @retval EFI_ALREADY_STARTED if already started.
-  @retval Does not return on success.
-**/
-typedef
-EFI_STATUS
-(EFIAPI *OC_BOOTSTRAP_RERUN) (
-  IN OC_BOOTSTRAP_PROTOCOL            *This,
-  IN EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *FileSystem,
-  IN EFI_DEVICE_PATH_PROTOCOL         *LoadPath  OPTIONAL
-  );
 
 /**
   Obtain OpenCore load handle.
@@ -74,9 +56,6 @@ EFI_HANDLE
 ///
 struct OC_BOOTSTRAP_PROTOCOL_ {
   UINTN               Revision;
-  UINTN               NestedCount;
-  OC_RSA_PUBLIC_KEY   *VaultKey;
-  OC_BOOTSTRAP_RERUN  ReRun;
   OC_GET_LOAD_HANDLE  GetLoadHandle;
 };
 

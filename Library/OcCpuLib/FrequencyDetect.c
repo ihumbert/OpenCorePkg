@@ -15,16 +15,21 @@
 #include <Uefi.h>
 
 #include <Guid/OcVariable.h>
+#include <Guid/AppleHob.h>
+#include <Guid/ApplePlatformInfo.h>
 #include <IndustryStandard/CpuId.h>
 #include <IndustryStandard/GenericIch.h>
+#include <IndustryStandard/McpMemoryController.h>
 #include <Protocol/PciIo.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
+#include <Library/MemoryAllocationLib.h>
 #include <Library/OcCpuLib.h>
 #include <Library/PciLib.h>
 #include <Library/OcMiscLib.h>
+#include <Library/OcGuardLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <IndustryStandard/ProcessorInfo.h>
@@ -129,15 +134,14 @@ InternalCalculateTSCFromPMTimer (
   //
   STATIC UINT64 TSCFrequency = 0;
 
-  UINTN       TimerAddr;
+  UINT16      TimerAddr;
   UINTN       VariableSize;
-  UINT64      Tsc0;
-  UINT64      Tsc1;
+  UINT64      TscTicksDelta;
   UINT32      AcpiTick0;
   UINT32      AcpiTick1;
   UINT32      AcpiTicksDelta;
-  UINT32      AcpiTicksTarget;
-  UINT32      TimerResolution;
+  UINT32      AcpiTicksDuration;
+  BOOLEAN     HasInterrupts;
   EFI_TPL     PrevTpl;
   EFI_STATUS  Status;
 
@@ -169,8 +173,7 @@ InternalCalculateTSCFromPMTimer (
   }
 
   if (TSCFrequency == 0) {
-    TimerAddr       = InternalGetPmTimerAddr (NULL);
-    TimerResolution = 10;
+    TimerAddr       = (UINT16) InternalGetPmTimerAddr (NULL);
 
     if (TimerAddr != 0) {
       //
@@ -187,63 +190,24 @@ InternalCalculateTSCFromPMTimer (
         // The code below can handle overflow with AcpiTicksTarget of up to 24-bit size,
         // on both available sizes of ACPI PM Timers (24-bit and 32-bit).
         //
-        // 357954 clocks of ACPI timer (100ms)
+        // 357954 clocks of ACPI timer (200ms)
         //
-        AcpiTicksTarget = V_ACPI_TMR_FREQUENCY / TimerResolution;
+        AcpiTicksDuration = V_ACPI_TMR_FREQUENCY / 10;
 
         //
         // Disable all events to ensure that nobody interrupts us.
         //
         PrevTpl   = gBS->RaiseTPL (TPL_HIGH_LEVEL);
-
-        AcpiTick0 = IoRead32 (TimerAddr);
-        Tsc0      = AsmReadTsc ();
-
-        do {
-          CpuPause ();
-
-          //
-          // Check how many AcpiTicks have passed since we started.
-          //
-          AcpiTick1 = IoRead32 (TimerAddr);
-
-          if (AcpiTick0 <= AcpiTick1) {
-            //
-            // No overflow.
-            //
-            AcpiTicksDelta = AcpiTick1 - AcpiTick0;
-          } else if (AcpiTick0 - AcpiTick1 <= 0x00FFFFFF) {
-            //
-            // Overflow, 24-bit timer.
-            //
-            AcpiTicksDelta = 0x00FFFFFF - AcpiTick0 + AcpiTick1;
-          } else {
-            //
-            // Overflow, 32-bit timer.
-            //
-            AcpiTicksDelta = MAX_UINT32 - AcpiTick0 + AcpiTick1;
-          }
-
-          //
-          // Keep checking AcpiTicks until target is reached.
-          //
-        } while (AcpiTicksDelta < AcpiTicksTarget);
-
-        Tsc1 = AsmReadTsc ();
-
-        //
-        // On some systems we may end up waiting for notably longer than 100ms,
-        // despite disabling all events. Divide by actual time passed as suggested
-        // by asava's Clover patch r2668.
-        //
-        TSCFrequency = DivU64x32 (
-          MultU64x32 (Tsc1 - Tsc0, V_ACPI_TMR_FREQUENCY), AcpiTicksDelta
-          );
-
-        //
-        // Restore to normal TPL.
-        //
+        HasInterrupts = SaveAndDisableInterrupts ();
+        AsmMeasureTicks (AcpiTicksDuration, TimerAddr, &AcpiTicksDelta, &TscTicksDelta);
+        if (HasInterrupts) {
+          EnableInterrupts ();
+        }
         gBS->RestoreTPL (PrevTpl);
+
+        TSCFrequency = DivU64x32 (
+          MultU64x32 (TscTicksDelta, V_ACPI_TMR_FREQUENCY), AcpiTicksDelta
+          );
       }
     }
 
@@ -264,6 +228,187 @@ InternalCalculateTSCFromPMTimer (
   }
 
   return TSCFrequency;
+}
+
+STATIC
+UINT64
+InternalSelectAppleFsbFrequency (
+  IN UINT64  *FsbFrequency,
+  IN UINT32  FsbFrequncyCount
+  )
+{
+  UINT32               Pll;
+
+  if (FsbFrequncyCount < 5) {
+    return 0 /* Invalid */;
+  }
+
+  //
+  // Tested on nForce MCP89 installed in MacBook7,1.
+  //
+  Pll = IoRead32 (R_NVIDIA_MCP89_DDR_PLL);
+
+  DEBUG ((
+    DEBUG_INFO,
+    "OCCPU: Selecting FSB freq by PLL freq %u from %Lu %Lu %Lu %Lu %Lu\n",
+    Pll,
+    FsbFrequency[0],
+    FsbFrequency[1],
+    FsbFrequency[2],
+    FsbFrequency[3],
+    FsbFrequency[4]
+    ));
+
+  Pll /= 1000000;
+
+  if (Pll == 16) {
+    return FsbFrequency[0];
+  }
+  if (Pll >= 1063 && Pll <= 1069) {
+    return FsbFrequency[0];
+  }
+  if (Pll >= 530 && Pll <= 536) {
+    return FsbFrequency[1];
+  }
+  if (Pll >= 797 && Pll <= 803) {
+    return FsbFrequency[2];
+  }
+  if (Pll >= 663 && Pll <= 669) {
+    return FsbFrequency[3];
+  }
+  if (Pll >= 1330 && Pll <= 1336) {
+    return FsbFrequency[4];
+  }
+  return 0 /* Invalid */;
+}
+
+UINT64
+InternalCalculateTSCFromApplePlatformInfo (
+  OUT  UINT64   *FSBFrequency  OPTIONAL,
+  IN   BOOLEAN  Recalculate
+  )
+{
+  //
+  // Cache the result to speed up multiple calls.
+  //
+  STATIC BOOLEAN ObtainedFreqs = FALSE;
+  STATIC UINT64  FsbFreq       = 0;
+  STATIC UINT64  TscFreq       = 0;
+
+  EFI_STATUS                             Status;
+  APPLE_PLATFORM_INFO_DATABASE_PROTOCOL  *PlatformInfo;
+  UINT32                                 Size;
+  UINT64                                 *FsbFreqs;
+  UINT32                                 Un44;
+  UINT32                                 Un78;
+  UINT64                                 Dividend;
+  UINT32                                 Divisor;
+
+  if (Recalculate) {
+    ObtainedFreqs = FALSE;
+    FsbFreq       = 0;
+    TscFreq       = 0;
+  }
+
+  if (!ObtainedFreqs) {
+    ObtainedFreqs = TRUE;
+    Size          = sizeof (FsbFreq);
+
+    Status = gBS->LocateProtocol (
+      &gApplePlatformInfoDatabaseProtocolGuid,
+      NULL,
+      (VOID **) &PlatformInfo
+      );
+    if (!EFI_ERROR (Status)) {
+      Status = OcReadApplePlatformFirstData (
+        PlatformInfo,
+        &gAppleFsbFrequencyPlatformInfoGuid,
+        &Size,
+        &FsbFreq
+        );
+
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_INFO, "OCCPU: Failed to get FSBFrequency first data - %r, trying HOB method\n", Status));
+        Status = OcReadApplePlatformData (
+          PlatformInfo,
+          &gAppleFsbFrequencyPlatformInfoGuid,
+          &gAppleFsbFrequencyPlatformInfoIndexHobGuid,
+          &Size,
+          &FsbFreq
+          );
+      }
+
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_INFO, "OCCPU: Failed to get FSBFrequency data using HOB method - %r, trying legacy\n", Status));
+        Status = OcReadApplePlatformFirstDataAlloc (
+          PlatformInfo,
+          &gAppleFsbFrequencyListPlatformInfoGuid,
+          &Size,
+          (VOID **) &FsbFreqs
+          );
+        if (!EFI_ERROR (Status)) {
+          if (Size >= sizeof (UINT64) && Size % sizeof (UINT64) == 0) {
+            FsbFreq = InternalSelectAppleFsbFrequency (FsbFreqs, Size / sizeof (UINT64));
+          } else {
+            DEBUG ((DEBUG_INFO, "OCCPU: Invalid FSBFrequency list size %u - %r\n", Size, Status));
+            Status = EFI_INVALID_PARAMETER;
+          }
+
+          FreePool (FsbFreqs);
+        }
+      }
+    } else {
+      DEBUG ((DEBUG_VERBOSE, "OCCPU: Failed to locate ApplePlatformInfo protocol - %r\n", Status));
+    }
+
+    //
+    // This is not necessarily Apple, but keep it here for the time being.
+    // Should work on more or less any MCP79 device.
+    //
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_INFO, "OCCPU: Failed to get FSBFrequency data using Apple Platform Info - %r\n", Status));
+      
+      if (MmioRead16 (B_NVIDIA_MCP_MC_BASE) == V_NVIDIA_MCP_MC_VENDOR) {
+        Un44 = MmioRead32 (B_NVIDIA_MCP_MC_BASE + R_NVIDIA_MCP_MC_UN44);
+        Un78 = MmioRead32 (B_NVIDIA_MCP_MC_BASE + R_NVIDIA_MCP_MC_UN78);
+
+        Dividend = NVIDIA_MCP79_GET_FSB_FREQUENCY_DIVIDEND (Un44, Un78);
+        Divisor  = NVIDIA_MCP79_GET_FSB_FREQUENCY_DIVISOR (Un44, Un78);
+
+        DEBUG ((
+          DEBUG_INFO,
+          "OCCPU: Found nForce MCP MC 0x%08X (UN44 0x%08X, UN78 0x%08X, DVD 0x%016Lx, DIV 0x%08X)\n",
+          MmioRead32 (B_NVIDIA_MCP_MC_BASE),
+          Un44,
+          Un78,
+          Dividend,
+          Divisor
+          ));
+
+        if (Divisor != 0) {
+          FsbFreq = DivU64x32 (Dividend, Divisor);
+          if (FsbFreq != 0) {
+            Status = EFI_SUCCESS;
+          }
+        }
+      }
+    }
+
+    if (EFI_ERROR (Status)) {
+      return 0;
+    }
+
+    TscFreq = InternalConvertAppleFSBToTSCFrequency (FsbFreq);
+  }
+  
+  //
+  // Optionally update FSBFrequency.
+  //
+  if (FSBFrequency != NULL) {
+    *FSBFrequency = FsbFreq;
+  }
+
+  return TscFreq;
 }
 
 UINT64
@@ -529,12 +674,15 @@ OcGetTSCFrequency (
   if (CPUFrequency == 0) {
     CPUFrequency = InternalCalculateVMTFrequency (NULL, NULL);
     if (CPUFrequency == 0) {
-      CPUFrequency = InternalCalculateTSCFromPMTimer (FALSE);
+      CPUFrequency = InternalCalculateTSCFromApplePlatformInfo (NULL, FALSE);
       if (CPUFrequency == 0) {
-        //
-        // Assume at least some frequency, so that we always work.
-        //
-        CPUFrequency = OC_FALLBACK_CPU_FREQUENCY;
+        CPUFrequency = InternalCalculateTSCFromPMTimer (FALSE);
+        if (CPUFrequency == 0) {
+          //
+          // Assume at least some frequency, so that we always work.
+          //
+          CPUFrequency = OC_FALLBACK_CPU_FREQUENCY;
+        }
       }
     }
   }

@@ -15,14 +15,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Protocol/SimpleTextIn.h>
 #include <Protocol/SimpleTextInEx.h>
-#include <Protocol/HiiDatabase.h>
 #include <Protocol/UsbIo.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/AppleKeyMapDatabase.h>
 #include <Protocol/ApplePlatformInfoDatabase.h>
-
-#include <Guid/HiiKeyBoardLayout.h>
-#include <Guid/UsbKeyBoardLayout.h>
 
 #include <Library/DebugLib.h>
 #include <Library/ReportStatusCodeLib.h>
@@ -34,7 +30,6 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
 #include <Library/UefiUsbLib.h>
-#include <Library/HiiLib.h>
 
 #include <IndustryStandard/Usb.h>
 
@@ -156,12 +151,12 @@ typedef struct {
   LIST_ENTRY                        NsKeyList;
   USB_NS_KEY                        *CurrentNsKey;
   EFI_KEY_DESCRIPTOR                *KeyConvertionTable;
-  EFI_EVENT                         KeyboardLayoutEvent;
 
   APPLE_KEY_MAP_DATABASE_PROTOCOL   *KeyMapDb;
   UINTN                             KeyMapDbIndex;
 
   EFI_EVENT                         KeyMapInstallNotifyEvent;
+  VOID                              *KeyMapInstallRegistration;
 
   EFI_EVENT                         ExitBootServicesEvent;
 } USB_KB_DEV;
@@ -388,7 +383,7 @@ UsbKeyboardComponentNameGetControllerName (
 // Functions of Simple Text Input Protocol
 //
 /**
-  Reset the input device and optionaly run diagnostics
+  Reset the input device and optionally run diagnostics
 
   There are 2 types of reset for USB keyboard.
   For non-exhaustive reset, only keyboard buffer is cleared.
@@ -417,8 +412,8 @@ USBKeyboardReset (
                                information for the key that was pressed.
 
   @retval EFI_SUCCESS          The keystroke information was returned.
-  @retval EFI_NOT_READY        There was no keystroke data availiable.
-  @retval EFI_DEVICE_ERROR     The keydtroke information was not returned due to
+  @retval EFI_NOT_READY        There was no keystroke data available.
+  @retval EFI_DEVICE_ERROR     The keystroke information was not returned due to
                                hardware errors.
 
 **/
@@ -518,7 +513,7 @@ USBKeyboardSetState (
   @param  NotifyHandle                Points to the unique handle assigned to the registered notification.
 
   @retval EFI_SUCCESS                 The notification function was registered successfully.
-  @retval EFI_OUT_OF_RESOURCES        Unable to allocate resources for necesssary data structures.
+  @retval EFI_OUT_OF_RESOURCES        Unable to allocate resources for necessary data structures.
   @retval EFI_INVALID_PARAMETER       KeyData or NotifyHandle or KeyNotificationFunction is NULL.
 
 **/
@@ -585,7 +580,7 @@ KbdFreeNotifyList (
   @param  InputData         A pointer to keystroke data for the key that was pressed.
 
   @retval TRUE              Key pressed matches a registered key.
-  @retval FLASE             Key pressed does not matche a registered key.
+  @retval FALSE             Key pressed does not match a registered key.
 
 **/
 BOOLEAN

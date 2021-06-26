@@ -257,20 +257,11 @@ UpdateDataHub (
   IN OC_CPU_INFO            *CpuInfo
   )
 {
-  GUID                   SystemId;
-
   DataHubSetAppleMiscAscii (DataHub, OC_PLATFORM_NAME, Data->PlatformName);
   DataHubSetAppleMiscUnicode (DataHub, OC_SYSTEM_PRODUCT_NAME, Data->SystemProductName);
   DataHubSetAppleMiscUnicode (DataHub, OC_SYSTEM_SERIAL_NUMBER, Data->SystemSerialNumber);
   if (Data->SystemUUID != NULL) {
-    //
-    // Byte order for SystemId must be swapped.
-    //
-    CopyGuid (&SystemId, Data->SystemUUID);
-    SystemId.Data1 = SwapBytes32 (SystemId.Data1);
-    SystemId.Data2 = SwapBytes16 (SystemId.Data2);
-    SystemId.Data3 = SwapBytes16 (SystemId.Data3);
-    DataHubSetAppleMiscData (DataHub, OC_SYSTEM_UUID, &SystemId, sizeof (SystemId));
+    DataHubSetAppleMiscData (DataHub, OC_SYSTEM_UUID, Data->SystemUUID, sizeof (*Data->SystemUUID));
   }
   DataHubSetAppleMiscAscii (DataHub, OC_BOARD_PRODUCT, Data->BoardProduct);
   DataHubSetAppleMiscData (DataHub, OC_BOARD_REVISION, Data->BoardRevision, sizeof (*Data->BoardRevision));
@@ -288,6 +279,11 @@ UpdateDataHub (
   DataHubSetAppleMiscData (DataHub, OC_SMC_REVISION, Data->SmcRevision, OC_SMC_REVISION_SIZE);
   DataHubSetAppleMiscData (DataHub, OC_SMC_BRANCH, Data->SmcBranch, OC_SMC_BRANCH_SIZE);
   DataHubSetAppleMiscData (DataHub, OC_SMC_PLATFORM, Data->SmcPlatform, OC_SMC_PLATFORM_SIZE);
+  //
+  // Should normally be 0x20000, but it will cause issues like Recovery OS not booting
+  // without real coprocessor hardware present.
+  //
+  DataHubSetAppleMiscData (DataHub, OC_COPROCESSOR_VERSION, Data->CoprocessorVersion, sizeof (*Data->CoprocessorVersion));
 
   return EFI_SUCCESS;
 }

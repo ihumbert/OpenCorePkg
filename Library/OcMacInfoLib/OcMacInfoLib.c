@@ -19,24 +19,25 @@
 #include <Library/DebugLib.h>
 #include <Library/OcAppleKernelLib.h>
 #include <Library/OcMacInfoLib.h>
+#include <Library/OcStringLib.h>
 
 #include "MacInfoInternal.h"
 
 STATIC CONST UINT32 mDevicePathsSupported = 1;
 
 STATIC
-CONST MAC_INFO_64BIT_COMPAT_ENTRY Mac64BitModels[] = {
+CONST MAC_INFO_64BIT_COMPAT_ENTRY gMac64BitModels[] = {
   {
     "Macmini", 0, 3
-  },
-  {
-    "MacBook", 0, 5
   },
   {
     "MacBookAir", 0, 2
   },
   {
     "MacBookPro", 4, 3
+  },
+  {
+    "MacBook", 0, 5
   },
   {
     "iMac", 8, 7
@@ -83,11 +84,11 @@ LookupInternalEntry (
       //
       // Even the first element does not match, required due to unsigned End.
       //
-      return &gMacInfoModels[gMacInfoDefaultModel];
+      return NULL;
     }
   }
 
-  return &gMacInfoModels[gMacInfoDefaultModel];
+  return NULL;
 }
 
 VOID
@@ -101,6 +102,12 @@ GetMacInfo (
   ZeroMem (MacInfo, sizeof (*MacInfo));
 
   InternalEntry = LookupInternalEntry (ProductName);
+  if (InternalEntry == NULL) {
+    //
+    // Fallback to default model if given ProductName is not found.
+    //
+    InternalEntry = &gMacInfoModels[gMacInfoDefaultModel];
+  }
 
   //
   // Fill in DataHub values.
@@ -145,6 +152,18 @@ GetMacInfo (
 }
 
 BOOLEAN
+HasMacInfo (
+  IN CONST CHAR8     *ProductName
+  )
+{
+  CONST MAC_INFO_INTERNAL_ENTRY  *InternalEntry;
+
+  InternalEntry = LookupInternalEntry (ProductName);
+
+  return InternalEntry != NULL;
+}
+
+BOOLEAN
 IsMacModel64BitCompatible (
   IN CONST CHAR8    *ProductName,
   IN UINT32         KernelVersion
@@ -171,26 +190,35 @@ IsMacModel64BitCompatible (
 
   SystemModelLength = AsciiStrLen (ProductName);
 
-  for (Index = 0; Index < sizeof (Mac64BitModels); Index++) {
-    CurrentModelLength = AsciiStrLen (Mac64BitModels[Index].ModelName);
-    if (SystemModelLength <= CurrentModelLength) {
+  for (Index = 0; Index < ARRAY_SIZE (gMac64BitModels); Index++) {
+    //
+    // Ensure name is at least as big as what we have in the table, plus a number character.
+    //
+    CurrentModelLength = AsciiStrLen (gMac64BitModels[Index].ModelName);
+    if (SystemModelLength <= CurrentModelLength + 1) {
       continue;
     }
 
-    if (AsciiStrnCmp (ProductName, Mac64BitModels[Index].ModelName, CurrentModelLength) == 0) {
+    if (AsciiStrnCmp (ProductName, gMac64BitModels[Index].ModelName, CurrentModelLength) == 0) {
       SystemModelSuffix = &ProductName[CurrentModelLength];
+      if (!IsAsciiNumber (SystemModelSuffix[0])) {
+        continue;
+      }
 
       SystemModelSeparator = AsciiStrStr (SystemModelSuffix, ",");
       Status = AsciiStrDecimalToUint64S (SystemModelSuffix, &SystemModelSeparator, &SystemModelMajor);
       if (!EFI_ERROR (Status)) {
         if (OcMatchDarwinVersion (KernelVersion, KERNEL_VERSION_SNOW_LEOPARD_MIN, KERNEL_VERSION_SNOW_LEOPARD_MAX)) {
-          return Mac64BitModels[Index].SnowLeoMin64 != 0 && SystemModelMajor >= Mac64BitModels[Index].SnowLeoMin64;
+          return gMac64BitModels[Index].SnowLeoMin64 != 0 && SystemModelMajor >= gMac64BitModels[Index].SnowLeoMin64;
         } else if (OcMatchDarwinVersion (KernelVersion, KERNEL_VERSION_LION_MIN, KERNEL_VERSION_LION_MAX)) {
-          return Mac64BitModels[Index].LionMin64 != 0 && SystemModelMajor >= Mac64BitModels[Index].LionMin64;
+          return gMac64BitModels[Index].LionMin64 != 0 && SystemModelMajor >= gMac64BitModels[Index].LionMin64;
         }
       }
     }
   }
 
-  return FALSE;
+  //
+  // Default behavior allows 64-bit on both 10.6 and 10.7 if the model is not found.
+  //
+  return TRUE;
 }

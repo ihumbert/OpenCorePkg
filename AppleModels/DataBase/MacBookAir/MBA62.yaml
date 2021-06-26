@@ -1,7 +1,7 @@
 BIOSVendor: "Apple Inc."
-BIOSVersion: "122.0.0.0.0"
-BIOSLegacyVersion: "MBA61.88Z.F000.B00.2006101810"
-BIOSReleaseDate: "06/10/2020"
+BIOSVersion: "431.0.0.0.0"
+BIOSLegacyVersion: "MBA61.88Z.F000.B00.2102221733"
+BIOSReleaseDate: "02/22/2021"
 SystemManufacturer: "Apple Inc."
 SystemProductName: "MacBookAir6,2"
 SystemVersion: "1.0"
@@ -75,13 +75,13 @@ SmcEPCI: 0x7B007
 OEMStrings: |-
   Apple ROM Version
     Model:        MBA61
-    EFI Version:  122.0.0.0.0
-    Built by:     root@saumon
-    Date:         Wed Jun 10 18:10:36 PDT 2020
-    Revision:     122 (B&I)
+    EFI Version:  431.0.0.0.0
+    Built by:     root@bb-g8-pdb50
+    Date:         Mon Feb 22 17:33:44 PST 2021
+    Revision:     431 (B&I)
     ROM Version:  F000_B00
     Build Type:   Official Build, Release
-    Compiler:     Apple clang version 3.0 (tags/Apple/clang-211.10.1) (based on LLVM 3.0svn)
+    Compiler:     clang-1205.0.19.59.6
 Specifications:
   CPUCodename:
     - "Haswell"
@@ -187,4 +187,5 @@ AppleModelYear:
   - 2015
 CloverSerialNumber: "C02L9HACF5V7"
 MinimumOSVersion: "10.9.2"
-MaximumOSVersion: null
+# FIXME: check
+MaximumOSVersion: "11.7"

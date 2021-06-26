@@ -44,11 +44,6 @@ typedef struct {
   UINT8                 KeyForgotThreshold;
 
   //
-  // Assume simultaneous press if within this value.
-  //
-  UINT8                 KeyMergeThreshold;
-
-  //
   // Perform ASCII and scan code input key filtering.
   //
   BOOLEAN               KeyFiltering;
@@ -85,7 +80,7 @@ typedef struct {
 
   //
   // Indicates we are done for any event in case it gets fired.
-  // Not really needed, put in case of bogus firmwares.
+  // Not really needed. Added in case of bogus firmware.
   //
   BOOLEAN               OurJobIsDone;
 } AIK_SELF;

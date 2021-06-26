@@ -162,7 +162,7 @@ typedef enum {
 
 ///
 /// System language.
-/// String starting with language code (e.g. ru-RU:252).
+/// CHAR8[] String starting with language code (e.g. ru-RU:252).
 /// gAppleBootVariableGuid
 ///
 #define APPLE_PREV_LANG_KBD_VARIABLE_NAME   L"prev-lang:kbd"
@@ -217,6 +217,13 @@ typedef enum {
 #define APPLE_PANIC_INFO_NO_VARIABLE_NAME L"AAPL,PanicInfo%04x"
 
 ///
+/// Set display rotation angle.
+/// UINT32: 0, 90, 180, 270.
+/// gAppleBootVariableGuid
+///
+#define APPLE_FORCE_DISPLAY_ROTATION_VARIABLE_NAME L"ForceDisplayRotationInEFI"
+
+///
 /// BootCampt device path.
 /// UEFI Device Path.
 /// gAppleBootVariableGuid
@@ -237,9 +244,16 @@ typedef enum {
 #define APPLE_RECOVERY_BOOT_MODE_VARIABLE_NAME L"recovery-boot-mode"
 
 ///
+/// Startup sound configuration variable.
+/// UINT8: 00 (for unmuted, default) or 01 (for muted).
+/// gAppleBootVariableGuid
+///
+#define APPLE_STARTUP_MUTE_VARIABLE_NAME L"StartupMute"
+
+///
 /// Recovery initiator device path. In general EfiBoot device path that called
 /// reboot to recovery.
-/// gAppleBootVariableGuid
+/// gAppleVendorVariableGuid
 ///
 #define APPLE_RECOVERY_BOOT_INITIATOR_VARIABLE_NAME L"RecoveryBootInitiator"
 

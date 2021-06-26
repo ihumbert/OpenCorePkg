@@ -62,7 +62,7 @@ SmcPlatform:
   - 0x00
 # FIXME: Correct this one
 SmcEPCI: 0x079001
-OEMStrings: ""
+OEMStrings: |-
 Specifications:
   CPUCodename:
     - "Woodcrest"
@@ -79,7 +79,7 @@ Specifications:
   SystemReportName:
     - "Mac Pro"
   MarketingName:
-    - "Mac Pro"
+    - "Mac Pro (Original)"
 # Note, first model code is used by macserial
 AppleModelCode:
   - "UQ2"

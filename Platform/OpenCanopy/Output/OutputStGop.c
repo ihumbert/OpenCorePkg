@@ -15,6 +15,9 @@
 
 #include "../GuiIo.h"
 
+#define MIN_RESOLUTION_HORIZONTAL  640U
+#define MIN_RESOLUTION_VERTICAL    480U
+
 struct GUI_OUTPUT_CONTEXT_ {
   EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop;
 };
@@ -34,14 +37,10 @@ InternalGuiOutputLocateGop (
     (VOID **) &Gop
     );
   if (EFI_ERROR (Status)) {
-    Status = gBS->LocateProtocol (
-      &gEfiGraphicsOutputProtocolGuid,
-      NULL,
-      (VOID **) &Gop
-      );
-    if (EFI_ERROR (Status)) {
-      return NULL;
-    }
+    //
+    // Do not fall back to other GOP instances to match AppleEvent.
+    //
+    return NULL;
   }
 
   return Gop;
@@ -49,10 +48,12 @@ InternalGuiOutputLocateGop (
 
 GUI_OUTPUT_CONTEXT *
 GuiOutputConstruct (
-  VOID
+  IN UINT32  Scale
   )
 {
-  GUI_OUTPUT_CONTEXT            *Context;
+  // TODO: alloc on the fly?
+  STATIC GUI_OUTPUT_CONTEXT Context;
+
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *Gop;
 
   Gop = InternalGuiOutputLocateGop();
@@ -60,13 +61,21 @@ GuiOutputConstruct (
     return NULL;
   }
 
-  Context = AllocatePool (sizeof (*Context));
-  if (Context == NULL) {
+  if (Gop->Mode->Info->HorizontalResolution < MIN_RESOLUTION_HORIZONTAL * Scale
+   || Gop->Mode->Info->VerticalResolution < MIN_RESOLUTION_VERTICAL * Scale) {
+    DEBUG ((
+      DEBUG_INFO,
+      "OCUI: Expected at least %dx%d for resolution, actual %dx%d\n",
+      MIN_RESOLUTION_HORIZONTAL * Scale,
+      MIN_RESOLUTION_VERTICAL * Scale,
+      Context.Gop->Mode->Info->HorizontalResolution,
+      Context.Gop->Mode->Info->VerticalResolution
+      ));
     return NULL;
   }
 
-  Context->Gop = Gop;
-  return Context;
+  Context.Gop = Gop;
+  return &Context;
 }
 
 EFI_STATUS
@@ -112,5 +121,5 @@ GuiOutputDestruct (
   )
 {
   ASSERT (Context != NULL);
-  FreePool (Context);
+  ZeroMem (Context, sizeof (*Context));
 }

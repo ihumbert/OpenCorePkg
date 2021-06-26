@@ -275,20 +275,21 @@ enum {
   //
   // ARM Family
   //
-  MachCpuFamilyArm9              = 0xE73283AE,
-  MachCpuFamilyArm11             = 0x8FF620D8,
-  MachCpuFamilyArmXscale         = 0x53B005F5,
-  MachCpuFamilyArm12             = 0xBD1B0AE9,
-  MachCpuFamilyArm13             = 0x0CC90E64,
-  MachCpuFamilyArm14             = 0x96077EF1,
-  MachCpuFamilyArm15             = 0xA8511BCA,
-  MachCpuFamilyArmSwift          = 0x1E2D6381,
-  MachCpuFamilyArmCyclone        = 0x37A09642,
-  MachCpuFamilyArmTyphoon        = 0x2C91A47E,
-  MachCpuFamilyArmTwister        = 0x92FB37C8,
-  MachCpuFamilyArmHurricane      = 0x67CEEE93,
-  MachCpuFamilyArmMonsoonMistral = 0xE81E7EF6,
-  MachCpuFamilyArmVortexTempest  = 0x07D34B9F,
+  MachCpuFamilyArm9                = 0xE73283AE,
+  MachCpuFamilyArm11               = 0x8FF620D8,
+  MachCpuFamilyArmXscale           = 0x53B005F5,
+  MachCpuFamilyArm12               = 0xBD1B0AE9,
+  MachCpuFamilyArm13               = 0x0CC90E64,
+  MachCpuFamilyArm14               = 0x96077EF1,
+  MachCpuFamilyArm15               = 0xA8511BCA,
+  MachCpuFamilyArmSwift            = 0x1E2D6381,
+  MachCpuFamilyArmCyclone          = 0x37A09642,
+  MachCpuFamilyArmTyphoon          = 0x2C91A47E,
+  MachCpuFamilyArmTwister          = 0x92FB37C8,
+  MachCpuFamilyArmHurricane        = 0x67CEEE93,
+  MachCpuFamilyArmMonsoonMistral   = 0xE81E7EF6,
+  MachCpuFamilyArmVortexTempest    = 0x07D34B9F,
+  MachCpuFamilyArmLightningThunder = 0x462504D2,
 };
 
 typedef UINT32 MACH_CPU_FAMILY;
@@ -858,8 +859,8 @@ typedef struct {
   UINT32 Size;                     ///< size in bytes of this section
   UINT32 Offset;                   ///< file offset of this section
   UINT32 Alignment;                ///< section alignment (power of 2)
-  UINT32 RelocationEntriesOffset;  ///< file offset of relocation entries
-  UINT32 NumRelocationEntries;     ///< number of relocation entries
+  UINT32 RelocationsOffset;        ///< file offset of relocation entries
+  UINT32 NumRelocations;           ///< number of relocation entries
   UINT32 Flags;                    ///< flags (section type and attributes)
   UINT32 Reserved1;                ///< reserved (for offset or index)
   UINT32 Reserved2;                ///< reserved (for count or sizeof)
@@ -882,6 +883,11 @@ typedef struct {
   UINT32 Reserved2;          ///< reserved (for count or sizeof)
   UINT32 Reserved3;          ///< reserved
 } MACH_SECTION_64;
+
+typedef union {
+  MACH_SECTION    Section32;
+  MACH_SECTION_64 Section64;
+} MACH_SECTION_ANY;
 
 #define NEXT_MACH_SEGMENT(Segment) \
   (MACH_SEGMENT_COMMAND *)((UINTN)(Segment) + (Segment)->Command.Size)
@@ -938,6 +944,11 @@ typedef struct {
   MACH_SEGMENT_FLAGS Flags;              ///< flags
   MACH_SECTION_64    Sections[];
 } MACH_SEGMENT_COMMAND_64;
+
+typedef union {
+  MACH_SEGMENT_COMMAND    Segment32;
+  MACH_SEGMENT_COMMAND_64 Segment64;
+} MACH_SEGMENT_COMMAND_ANY;
 
 ///
 /// A fixed virtual shared library (filetype == MH_FVMLIB in the mach header)
@@ -2109,6 +2120,11 @@ typedef struct {
   UINT64 Value;        ///< value of this symbol (or stab offset)
 } MACH_NLIST_64;
 
+typedef union {
+  MACH_NLIST    Symbol32;
+  MACH_NLIST_64 Symbol64;
+} MACH_NLIST_ANY;
+
 //
 // Symbols with a index into the string table of zero (n_un.n_strx == 0) are
 // defined to have a null, "", name.  Therefore all string indexes to non null
@@ -2162,9 +2178,9 @@ typedef struct {
 // sections in different files.
 //
 // The n_value field for all symbol table entries (including N_STAB's) gets
-// updated by the link editor based on the value of it's n_sect field and where
+// updated by the link editor based on the value of its n_sect field and where
 // the section n_sect references gets relocated.  If the value of the n_sect
-// field is NO_SECT then it's n_value field is not changed by the link editor.
+// field is NO_SECT then its n_value field is not changed by the link editor.
 //
 #define NO_SECT     0  ///< symbol is not in any section
 #define MAX_SECT  255  ///< 1 thru 255 inclusive
@@ -2298,7 +2314,7 @@ typedef struct {
 #define MACH_RELOC_ABSOLUTE  0U    ///< absolute relocation type for Mach-O files
 
 //
-// The r_address is not really the address as it's name indicates but an
+// The r_address is not really the address as its name indicates but an
 // offset.  In 4.3BSD a.out objects this offset is from the start of the
 // "segment" for which relocation entry is for (text or data).  For Mach-O
 // object files it is also an offset but from the start of the "section" for

@@ -521,7 +521,7 @@ Returns:
 --*/
 {
   EFI_STATUS                            Status;
-  EFI_HANDLE                            *HandleArray = NULL;
+  EFI_HANDLE                            *HandleArray;
   UINTN                                 HandleArrayCount;
   UINTN                                 Index;
   EFI_PCI_IO_PROTOCOL                   *PciIo;
@@ -529,8 +529,8 @@ Returns:
   UINT16                                Command;
   UINT32                                HcCapParams;
   UINT32                                ExtendCap;
-  UINT32                                Value, mSaveValue;
-  INT32                                 TimeOut;
+  UINT32                                Value;
+  UINT32                                TimeOut;
 
   //
   // Find the usb host controller
@@ -580,10 +580,11 @@ Returns:
               ExtendCap = (HcCapParams >> 8) & 0xFF;
               //
               // Disable the SMI in USBLEGCTLSTS firstly
+              // Not doing this may result in a hardlock soon after
               //
-              //              PciIo->Pci.Read (PciIo, EfiPciIoWidthUint32, ExtendCap + 0x4, 1, &mSaveValue);
-              //              Value = mSaveValue & 0xFFFF0000;
-              //              PciIo->Pci.Write (PciIo, EfiPciIoWidthUint32, ExtendCap + 0x4, 1, &Value);
+              PciIo->Pci.Read (PciIo, EfiPciIoWidthUint32, ExtendCap + 0x4, 1, &Value);
+              Value &= 0xFFFF0000;
+              PciIo->Pci.Write (PciIo, EfiPciIoWidthUint32, ExtendCap + 0x4, 1, &Value);
 
               //
               // Get EHCI Ownership from legacy bios
@@ -602,25 +603,14 @@ Returns:
                   break;
                 }
               }
-              if (TimeOut < 0) {
-                //
-                // Disable the SMI in USBLEGCTLSTS if BIOS doesn't respond
-                //
-                PciIo->Pci.Read (PciIo, EfiPciIoWidthUint32, ExtendCap + 0x4, 1, &mSaveValue);
-                Value = mSaveValue & 0xFFFF0000;
-                PciIo->Pci.Write (PciIo, EfiPciIoWidthUint32, ExtendCap + 0x4, 1, &Value);
-              }
             }
           }
         }
       }
     }
+    gBS->FreePool (HandleArray);
   } else {
     return Status;
-  }
-
-  if (HandleArray) {
-    gBS->FreePool (HandleArray);
   }
   return EFI_SUCCESS;
 }
@@ -754,7 +744,7 @@ GetGopDevicePath (
   }
 
   //
-  // Try to connect this handle, so that GOP dirver could start on this
+  // Try to connect this handle, so that GOP driver could start on this
   // device and create child handles with GraphicsOutput Protocol installed
   // on them, then we get device paths of these child handles and select
   // them as possible console device.
@@ -773,7 +763,8 @@ GetGopDevicePath (
     // Add all the child handles as possible Console Device
     //
     for (Index = 0; Index < GopHandleCount; Index++) {
-      Status = gBS->HandleProtocol (GopHandleBuffer[Index], &gEfiDevicePathProtocolGuid, (VOID*)&TempDevicePath);
+      Status = gBS->HandleProtocol (GopHandleBuffer[Index],
+                      &gEfiDevicePathProtocolGuid, (VOID*)&TempDevicePath);
       if (EFI_ERROR (Status)) {
         continue;
       }

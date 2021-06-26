@@ -30,6 +30,16 @@
 #define OC_MAX_VOLUME_LABEL_SIZE 64
 
 /**
+  Maximum safe content flavour size.
+**/
+#define OC_MAX_CONTENT_FLAVOUR_SIZE 64
+
+typedef struct {
+  UINT32  PreviousTime;
+  UINTN   PreviousIndex;
+} DIRECTORY_SEARCH_CONTEXT;
+
+/**
   Locate file system from Device handle or path.
 
   @param[in]  DeviceHandle  Device handle.
@@ -114,7 +124,7 @@ SafeFileOpen (
   );
 
 /**
-  Read file from device path with implicit double (2 byte) null termination.
+  Read file from file system with implicit double (2 byte) null termination.
   Null termination does not affect the returned file size.
   Depending on the implementation 0 byte files may return null.
 
@@ -131,6 +141,26 @@ ReadFile (
   IN  CONST CHAR16                     *FilePath,
   OUT UINT32                           *FileSize OPTIONAL,
   IN  UINT32                           MaxFileSize OPTIONAL
+  );
+
+/**
+  Read file from file protocol with implicit double (2 byte) null termination.
+  Null termination does not affect the returned file size.
+  Depending on the implementation 0 byte files may return null.
+
+  @param[in]  RootFile     A pointer to the file protocol of the directory.
+  @param[in]  FilePath     The full path to the file on the device.
+  @param[out] FileSize     The size of the file read (optional).
+  @param[in]  MaxFileSize  Upper file size bound (optional).
+
+  @retval A pointer to a buffer containing file read or NULL.
+**/
+VOID *
+ReadFileFromFile (
+  IN  EFI_FILE_PROTOCOL   *RootFile,
+  IN  CONST CHAR16        *FilePath,
+  OUT UINT32              *FileSize OPTIONAL,
+  IN  UINT32              MaxFileSize OPTIONAL
   );
 
 /**
@@ -203,6 +233,34 @@ AllocateCopyFileData (
   );
 
 /**
+  Initialize DIRECTORY_SEARCH_CONTEXT.
+
+  @param[in,out]  Context     A pointer to the DIRECTORY_SEARCH_CONTEXT.
+**/
+VOID
+DirectorySeachContextInit (
+  IN OUT DIRECTORY_SEARCH_CONTEXT *Context
+  );
+
+/**
+  Gets the next newest file from the specified directory.
+
+  @param[in,out]  Context               Context.
+  @param[in]      Directory             The directory EFI_FILE_PROTOCOL instance.
+  @param[in]      FileNameStartsWith    Skip files starting with this value.
+  @param[out]     FileInfo              EFI_FILE_INFO allocated from pool memory.
+
+  @retval EFI_SUCCESS on success.
+**/
+EFI_STATUS
+GetNewestFileFromDirectory (
+  IN OUT DIRECTORY_SEARCH_CONTEXT *Context,
+  IN     EFI_FILE_PROTOCOL        *Directory,
+  IN     CHAR16                   *FileNameStartsWith OPTIONAL,
+     OUT EFI_FILE_INFO            **FileInfo
+  );
+
+/**
   Get file information of specified type.
 
   @param[in]  File               A pointer to file handle.
@@ -248,8 +306,21 @@ GetFileModificationTime (
   OUT EFI_TIME           *Time
   );
 
+
 /**
-  Determine writeable filesystem.
+  Check if filesystem is writable.
+
+  @param[in]  Fs   File system to check.
+
+  @retval TRUE on success.
+**/
+BOOLEAN
+IsWritableFileSystem (
+  IN EFI_FILE_PROTOCOL  *Fs
+  );
+
+/**
+  Find writable filesystem.
 
   @param[in,out]  WritableFs   First found writeable file system.
 
@@ -258,6 +329,18 @@ GetFileModificationTime (
 EFI_STATUS
 FindWritableFileSystem (
   IN OUT EFI_FILE_PROTOCOL  **WritableFs
+  );
+
+/**
+  Find writable filesystem from Bootstrap.
+
+  @param[out]  FileSystem   Pointer to first found writeable file system.
+
+  @retval EFI_SUCCESS on success.
+**/
+EFI_STATUS
+FindWritableOcFileSystem (
+  OUT EFI_FILE_PROTOCOL  **FileSystem
   );
 
 /**
@@ -286,7 +369,7 @@ OcOpenFileByRemainingDevicePath (
 /**
   Open a file or directory by device path. This is a modified
   version of EfiOpenFileByDevicePath function, which handles paths
-  with trailing slashes, that cause Open failure on old firmwares.
+  with trailing slashes, that cause Open failure on old firmware.
   EfiOpenFileByDevicePath is additionally not available in UDK.
 
   See more details at:
@@ -417,15 +500,6 @@ OcGetGptPartitionEntry (
   );
 
 /**
-  Unblocks all partition handles without a File System protocol attached from
-  driver connection, if applicable.
-**/
-VOID
-OcUnblockUnmountedPartitions (
-  VOID
-  );
-
-/**
   Creates a device path for a firmware file.
 
   @param[in]  FileGuid  Firmware file GUID.
@@ -436,6 +510,23 @@ OcUnblockUnmountedPartitions (
 EFI_DEVICE_PATH_PROTOCOL *
 CreateFvFileDevicePath (
   IN EFI_GUID  *FileGuid
+  );
+
+/**
+  Reads firmware file section to pool-allocated buffer.
+
+  @param[in]  FileGuid      Firmware file GUID.
+  @param[in]  SectionType   Section type to read.
+  @param[out] FileSize      Size of the section read.
+
+  @return file contents allocated from pool.
+  @retval NULL on failure (e.g. when a file is not present).
+**/
+VOID *
+ReadFvFileSection (
+  IN  EFI_GUID          *FileGuid,
+  IN  UINT8             SectionType,
+  OUT UINT32            *FileSize
   );
 
 #endif // OC_FILE_LIB_H

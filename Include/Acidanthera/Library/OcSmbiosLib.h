@@ -21,15 +21,33 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 #include <Library/OcCpuLib.h>
 #include <Library/OcFileLib.h>
+#include <Library/OcMacInfoLib.h>
 #include <IndustryStandard/AppleSmBios.h>
 #include <Guid/OcSmBios.h>
 
 //
 // We use this vendor name to spoof SMBIOS data on request.
-// Note, never use Apple or similar on non apple instances (e.g. VMs).
-// This breaks many internal and external os mechanisms.
+// Note, never use Apple or similar on non-Apple instances (e.g. VMs).
+// This breaks many internal and external OS mechanisms.
 //
 #define OC_SMBIOS_VENDOR_NAME "Acidanthera"
+
+typedef struct OC_SMBIOS_MEMORY_DEVICE_DATA_ {
+  //
+  // Strings.
+  //
+  CONST CHAR8     *AssetTag;
+  CONST CHAR8     *BankLocator;
+  CONST CHAR8     *DeviceLocator;
+  CONST CHAR8     *Manufacturer;
+  CONST CHAR8     *PartNumber;
+  CONST CHAR8     *SerialNumber;
+  //
+  // Size is in megabytes and speed is in MT/s.
+  //
+  CONST UINT32    *Size;
+  CONST UINT16    *Speed;
+} OC_SMBIOS_MEMORY_DEVICE_DATA;
 
 typedef struct OC_SMBIOS_DATA_ {
   //
@@ -67,9 +85,25 @@ typedef struct OC_SMBIOS_DATA_ {
   CONST CHAR8     *ChassisSerialNumber;
   CONST CHAR8     *ChassisAssetTag;
   //
+  // Type 16
+  //
+  BOOLEAN         HasCustomMemory;
+  CONST UINT8     *MemoryErrorCorrection;
+  UINT16          MemoryDevicesCount;
+  CONST UINT64    *MemoryMaxCapacity;
+  //
   // Type 17
   //
-  CONST UINT8     *MemoryFormFactor;
+  CONST UINT16                  *MemoryDataWidth;
+  OC_SMBIOS_MEMORY_DEVICE_DATA  *MemoryDevices;
+  CONST UINT8                   *MemoryFormFactor;
+  //
+  // Forcibly override MemoryFormFactor on non-Automatic mode when TRUE.
+  //
+  BOOLEAN                       ForceMemoryFormFactor;
+  CONST UINT16                  *MemoryTotalWidth;
+  CONST UINT8                   *MemoryType;
+  CONST UINT16                  *MemoryTypeDetail;
   //
   // Type 128
   // FirmwareFeatures and FirmwareFeaturesMask are split into two UINT32
@@ -119,9 +153,9 @@ typedef enum OC_SMBIOS_UPDATE_MODE_ {
   OcSmbiosUpdateOverwrite    = 2,
   //
   // Writes first SMBIOS table (gEfiSmbiosTableGuid) to gOcCustomSmbiosTableGuid to workaround
-  // firmwares overwriting SMBIOS contents at ExitBootServices. Otherwise equivalent to
-  // OcSmbiosUpdateCreate. Requires patching AppleSmbios.kext and AppleACPIPlatform.kext to read
-  // from another GUID: "EB9D2D31" -> "EB9D2D35" (in ASCII).
+  // some types of firmware overwriting SMBIOS contents at ExitBootServices. Otherwise equivalent
+  // to OcSmbiosUpdateCreate. Requires patching AppleSmbios.kext and AppleACPIPlatform.kext 
+  // to read from another GUID: "EB9D2D31" -> "EB9D2D35" (in ASCII).
   //
   OcSmbiosUpdateCustom       = 3,
 } OC_SMBIOS_UPDATE_MODE;
@@ -184,6 +218,16 @@ OcSmbiosTableFree (
   IN OUT OC_SMBIOS_TABLE  *Table
   );
 
+/**
+  Create new SMBIOS based on specified overrides.
+
+  @param[in,out] SmbiosTable  SMBIOS Table handle.
+  @param[in]     Data         SMBIOS overrides.
+  @param[in]     Mode         SMBIOS update mode.
+  @param[in]     CpuInfo      CPU information.
+
+  @retval EFI_SUCCESS on success.
+**/
 EFI_STATUS
 OcSmbiosCreate (
   IN OUT OC_SMBIOS_TABLE        *SmbiosTable,
@@ -192,27 +236,75 @@ OcSmbiosCreate (
   IN     OC_CPU_INFO            *CpuInfo
   );
 
+/**
+  Extract OEM information from SMBIOS to different places.
+  Note, for MLB and ROM NVRAM values take precedence.
+
+  @param[in,out] SmbiosTable         SMBIOS Table handle.
+  @param[out]    ProductName         Export SMBIOS Type 1 product name,
+                                     requiring OC_OEM_NAME_MAX bytes.
+  @param[out]    SerialNumber        Export SMBIOS Type 1 product serial,
+                                     requiring OC_OEM_SERIAL_MAX bytes.
+  @param[out]    SystemUuid          Export SMBIOS Type 1 system UUID.
+                                     UUID is always returned in RAW format.
+  @param[out]    Mlb                 Export SMBIOS Type 2 board serial,
+                                     requiring OC_OEM_SERIAL_MAX bytes.
+  @param[out]    Rom                 Export ROM serial, requiring
+                                     OC_OEM_ROM_MAX bytes.
+  @param[out]    UuidIsRawEncoded    Pass FALSE to assume SMBIOS stores
+                                     SystemUuid in Little Endian format
+                                     and needs byte-swap.
+  @param[in]     UseVariableStorage  Export OEM information to NVRAM.
+**/
 VOID
-OcSmbiosExposeOemInfo (
-  IN OC_SMBIOS_TABLE   *SmbiosTable
+OcSmbiosExtractOemInfo (
+  IN  OC_SMBIOS_TABLE   *SmbiosTable,
+  OUT CHAR8             *ProductName        OPTIONAL,
+  OUT CHAR8             *SerialNumber       OPTIONAL,
+  OUT EFI_GUID          *SystemUuid         OPTIONAL,
+  OUT CHAR8             *Mlb                OPTIONAL,
+  OUT UINT8             *Rom                OPTIONAL,
+  IN  BOOLEAN           UuidIsRawEncoded,
+  IN  BOOLEAN           UseVariableStorage
   );
 
+/**
+  Convert SMC revision from SMC REV key format (6-byte)
+  to SMBIOS ASCII format (16-byte, APPLE_SMBIOS_SMC_VERSION_SIZE).
+
+  @param[in]  SmcRevision  SMC revision in REV key format.
+  @param[out] SmcVersion   SMC revision in SMBIOS format.  
+**/
 VOID
 OcSmbiosGetSmcVersion (
   IN  CONST UINT8  *SmcRevision,
   OUT UINT8        *SmcVersion
   );
 
-CHAR8*
-OcSmbiosGetManufacturer (
-  IN OC_SMBIOS_TABLE   *SmbiosTable
+/**
+  Choose update mode based on default representation.
+  Always returns valid update mode, by falling back
+  to Create when unknown mode was found. Known modes are:
+  TryOverwrite, Create, Overwrite, Custom.
+
+  @param[in] UpdateMode in ASCII format.
+
+  @returns SMBIS update mode in enum format.
+**/
+OC_SMBIOS_UPDATE_MODE
+OcSmbiosGetUpdateMode (
+  IN CONST CHAR8  *UpdateMode
   );
 
-CHAR8*
-OcSmbiosGetProductName (
-  IN OC_SMBIOS_TABLE   *SmbiosTable
-  );
+/**
+  Dump current SMBIOS data into specified directory
+  under EntryV#.bin/DataV#.bin names, where # is
+  SMBIOS version: 1, 3, or both.
 
+  @param[in] Root  Directory to dump SMBIOS data.
+
+  @retval EFI_SUCCESS on success.
+**/
 EFI_STATUS
 OcSmbiosDump (
   IN EFI_FILE_PROTOCOL  *Root

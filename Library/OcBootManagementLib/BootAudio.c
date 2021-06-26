@@ -49,6 +49,7 @@
 #include <Library/UefiLib.h>
 
 EFI_STATUS
+EFIAPI
 OcPlayAudioFile (
   IN     OC_PICKER_CONTEXT  *Context,
   IN     UINT32             File,
@@ -138,6 +139,7 @@ OcPlayAudioFile (
 }
 
 EFI_STATUS
+EFIAPI
 OcPlayAudioBeep (
   IN     OC_PICKER_CONTEXT        *Context,
   IN     UINT32                   ToneCount,
@@ -170,16 +172,13 @@ OcPlayAudioBeep (
 }
 
 EFI_STATUS
+EFIAPI
 OcPlayAudioEntry (
   IN     OC_PICKER_CONTEXT  *Context,
   IN     OC_BOOT_ENTRY      *Entry
   )
 {
   OcPlayAudioFile (Context, OcVoiceOverAudioFileIndexBase + Entry->EntryIndex, FALSE);
-
-  if (Entry->IsExternal) {
-    OcPlayAudioFile (Context, OcVoiceOverAudioFileExternal, FALSE);
-  }
 
   if (Entry->Type == OC_BOOT_APPLE_OS) {
     OcPlayAudioFile (Context, OcVoiceOverAudioFilemacOS, FALSE);
@@ -191,22 +190,45 @@ OcPlayAudioEntry (
     OcPlayAudioFile (Context, OcVoiceOverAudioFilemacOS_UpdateFw, FALSE);
   } else if (Entry->Type == OC_BOOT_WINDOWS) {
     OcPlayAudioFile (Context, OcVoiceOverAudioFileWindows, FALSE);
-  } else if (Entry->Type == OC_BOOT_RESET_NVRAM || StrStr (Entry->Name, OC_MENU_RESET_NVRAM_ENTRY) != NULL) {
-    OcPlayAudioFile (Context, OcVoiceOverAudioFileResetNVRAM, FALSE);
-  } else if (StrStr (Entry->Name, OC_MENU_UEFI_SHELL_ENTRY) != NULL) {
-    OcPlayAudioFile (Context, OcVoiceOverAudioFileUEFI_Shell, FALSE);
   }  else if (Entry->Type == OC_BOOT_EXTERNAL_OS) {
     OcPlayAudioFile (Context, OcVoiceOverAudioFileExternalOS, FALSE);
+  } else if (Entry->Type == OC_BOOT_RESET_NVRAM) {
+    OcPlayAudioFile (Context, OcVoiceOverAudioFileResetNVRAM, FALSE);
+  } else if (Entry->Type == OC_BOOT_TOGGLE_SIP) {
+    ASSERT (
+      StrCmp (Entry->Name, OC_MENU_SIP_IS_DISABLED) == 0 ||
+      StrCmp (Entry->Name, OC_MENU_SIP_IS_ENABLED) == 0
+      );
+    if (StrCmp (Entry->Name, OC_MENU_SIP_IS_DISABLED) == 0) {
+      OcPlayAudioFile (Context, OcVoiceOverAudioFileSIPIsDisabled, FALSE);
+    } else {
+      OcPlayAudioFile (Context, OcVoiceOverAudioFileSIPIsEnabled, FALSE);
+    }
   } else if (Entry->Type == OC_BOOT_EXTERNAL_TOOL) {
-    OcPlayAudioFile (Context, OcVoiceOverAudioFileExternalTool, FALSE);
+    if (OcAsciiStriStr (Entry->Flavour, OC_FLAVOUR_ID_RESET_NVRAM) != NULL) {
+      OcPlayAudioFile (Context, OcVoiceOverAudioFileResetNVRAM, FALSE);
+    } else if (OcAsciiStriStr (Entry->Flavour, OC_FLAVOUR_ID_UEFI_SHELL) != NULL) {
+      OcPlayAudioFile (Context, OcVoiceOverAudioFileUEFI_Shell, FALSE);
+    } else {
+      OcPlayAudioFile (Context, OcVoiceOverAudioFileExternalTool, FALSE);
+    }
   } else {
     OcPlayAudioFile (Context, OcVoiceOverAudioFileOtherOS, FALSE);
+  }
+
+  if (Entry->IsExternal) {
+    OcPlayAudioFile (Context, OcVoiceOverAudioFileExternal, FALSE);
+  }
+
+  if (Entry->IsFolder) {
+    OcPlayAudioFile (Context, OcVoiceOverAudioFileDiskImage, FALSE);
   }
 
   return EFI_SUCCESS;
 }
 
 VOID
+EFIAPI
 OcToggleVoiceOver (
   IN  OC_PICKER_CONTEXT  *Context,
   IN  UINT32             File  OPTIONAL

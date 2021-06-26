@@ -41,8 +41,8 @@ FreeBuiltInKext (
   if (BuiltinKext->PlistPath != NULL) {
     FreePool (BuiltinKext->PlistPath);
   }
-  if (BuiltinKext->BundleId != NULL) {
-    FreePool (BuiltinKext->BundleId);
+  if (BuiltinKext->Identifier != NULL) {
+    FreePool (BuiltinKext->Identifier);
   }
   if (BuiltinKext->BinaryFileName != NULL) {
     FreePool (BuiltinKext->BinaryFileName);
@@ -56,8 +56,8 @@ FreeBuiltInKext (
     DependKext = GET_DEPEND_KEXT_FROM_LINK (KextLink);
     RemoveEntryList (KextLink);
 
-    if (DependKext->BundleId != NULL) {
-      FreePool (DependKext->BundleId);
+    if (DependKext->Identifier != NULL) {
+      FreePool (DependKext->Identifier);
     }
     FreePool (DependKext);
   }
@@ -66,19 +66,52 @@ FreeBuiltInKext (
 }
 
 STATIC
-BOOLEAN
+EFI_STATUS
+AddKextDependency (
+  IN OUT LIST_ENTRY           *Dependencies,
+  IN     CONST CHAR8          *Identifier
+  )
+{
+  DEPEND_KEXT       *DependKext;
+  LIST_ENTRY        *KextLink;
+
+  KextLink = GetFirstNode (Dependencies);
+  while (!IsNull (Dependencies, KextLink)) {
+    DependKext = GET_DEPEND_KEXT_FROM_LINK (KextLink);
+
+    if (AsciiStrCmp (DependKext->Identifier, Identifier) == 0) {
+      return EFI_SUCCESS;
+    }
+
+    KextLink = GetNextNode (Dependencies, KextLink);
+  }
+
+  DependKext = AllocateZeroPool (sizeof (*DependKext));
+  if (DependKext == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+  DependKext->Signature = DEPEND_KEXT_SIGNATURE;
+  DependKext->Identifier = AllocateCopyPool (AsciiStrSize (Identifier), Identifier);
+  if (DependKext->Identifier == NULL) {
+    FreePool (DependKext);
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  InsertTailList (Dependencies, &DependKext->Link);
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
 AddKextDependencies (
   IN OUT LIST_ENTRY           *Dependencies,
   IN     XML_NODE             *InfoPlistLibraries
   )
 {
-  DEPEND_KEXT       *DependKext;
+  EFI_STATUS        Status;
   UINT32            ChildCount;
   UINT32            ChildIndex;
   CONST CHAR8       *ChildPlistKey;
-
-  LIST_ENTRY        *KextLink;
-  BOOLEAN           DependencyExists;
 
   ChildCount = PlistDictChildren (InfoPlistLibraries);
   for (ChildIndex = 0; ChildIndex < ChildCount; ChildIndex++) {
@@ -87,32 +120,13 @@ AddKextDependencies (
       continue;
     }
 
-    DependencyExists  = FALSE;
-    KextLink          = GetFirstNode (Dependencies);
-    while (!IsNull (Dependencies, KextLink)) {
-      DependKext = GET_DEPEND_KEXT_FROM_LINK (KextLink);
-
-      if (AsciiStrCmp (DependKext->BundleId, ChildPlistKey) == 0) {
-        DependencyExists = TRUE;
-        break;
-      }
-
-      KextLink = GetNextNode (Dependencies, KextLink);
-    }
-
-    if (!DependencyExists) {
-      DependKext = AllocateZeroPool (sizeof (*DependKext));
-      if (DependKext == NULL) {
-        return FALSE;
-      }
-      DependKext->Signature = DEPEND_KEXT_SIGNATURE;
-      DependKext->BundleId = AllocateCopyPool (AsciiStrSize (ChildPlistKey), ChildPlistKey);
-
-      InsertTailList (Dependencies, &DependKext->Link);
+    Status = AddKextDependency (Dependencies, ChildPlistKey);
+    if (EFI_ERROR (Status)) {
+      return Status;
     }
   }
 
-  return TRUE;
+  return EFI_SUCCESS;
 }
 
 STATIC
@@ -170,21 +184,31 @@ ScanExtensions (
     }
 
     if (FileInfoSize > 0) {
-      if (OcUnicodeEndsWith (FileInfo->FileName, L".kext")) {
+      if (OcUnicodeEndsWith (FileInfo->FileName, L".kext", FALSE)) {
         Status = File->Open (File, &FileKext, FileInfo->FileName, EFI_FILE_MODE_READ, EFI_FILE_DIRECTORY);
-        if (!EFI_ERROR (Status)) {
-          Status = FileKext->Open (FileKext, &FilePlist, L"Contents\\Info.plist", EFI_FILE_MODE_READ, 0);
-          UseContents = !EFI_ERROR (Status);
-          if (Status == EFI_NOT_FOUND) {
-            Status = FileKext->Open (FileKext, &FilePlist, L"Info.plist", EFI_FILE_MODE_READ, 0);
-          }
-          if (EFI_ERROR (Status)) {
-            FileKext->Close (FileKext);
-            File->SetPosition (File, 0);
-            FreePool (FileInfo);
-            return Status;
-          }
+        if (EFI_ERROR (Status)) {
+          continue;
+        }
 
+        //
+        // Determine if Contents directory exists.
+        // If not, we'll use the root of the kext.
+        //
+        Status      = FileKext->Open (FileKext, &FilePlist, L"Contents", EFI_FILE_MODE_READ, EFI_FILE_DIRECTORY);
+        UseContents = !EFI_ERROR (Status);
+
+        //
+        // There are some kexts that do not have an Info.plist, but do have PlugIns.
+        // This was observed in some versions of 10.4.
+        //
+        Status = FileKext->Open (
+          FileKext,
+          &FilePlist,
+          UseContents ? L"Contents\\Info.plist" : L"Info.plist",
+          EFI_FILE_MODE_READ,
+          0
+          );
+        if (!EFI_ERROR (Status)) {
           //
           // Parse Info.plist.
           //
@@ -254,8 +278,8 @@ ScanExtensions (
               }
 
             } else if (AsciiStrCmp (TmpKeyValue, INFO_BUNDLE_IDENTIFIER_KEY) == 0) {
-              BuiltinKext->BundleId = AllocateCopyPool (AsciiStrSize (XmlNodeContent (InfoPlistValue)), XmlNodeContent (InfoPlistValue));
-              if (BuiltinKext->BundleId == NULL) {
+              BuiltinKext->Identifier = AllocateCopyPool (AsciiStrSize (XmlNodeContent (InfoPlistValue)), XmlNodeContent (InfoPlistValue));
+              if (BuiltinKext->Identifier == NULL) {
                 FreeBuiltInKext (BuiltinKext);
                 XmlDocumentFree (InfoPlistDocument);
                 FreePool (InfoPlist);
@@ -287,14 +311,23 @@ ScanExtensions (
                 return EFI_INVALID_PARAMETER;
               }
 
-              AddKextDependencies (&BuiltinKext->Dependencies, InfoPlistLibraries);
+              Status = AddKextDependencies (&BuiltinKext->Dependencies, InfoPlistLibraries);
+              if (EFI_ERROR (Status)) {
+                FreeBuiltInKext (BuiltinKext);
+                XmlDocumentFree (InfoPlistDocument);
+                FreePool (InfoPlist);
+                FileKext->Close (FileKext);
+                File->SetPosition (File, 0);
+                FreePool (FileInfo);
+                return Status;
+              }
             }
           }
 
           XmlDocumentFree (InfoPlistDocument);
           FreePool (InfoPlist);
 
-          if (BuiltinKext->BundleId == NULL) {
+          if (BuiltinKext->Identifier == NULL) {
             FreeBuiltInKext (BuiltinKext);
             FileKext->Close (FileKext);
             File->SetPosition (File, 0);
@@ -365,45 +398,45 @@ ScanExtensions (
           DEBUG ((
             DEBUG_VERBOSE,
             "OCAK: Discovered bundle %a %s %s %u\n",
-            BuiltinKext->BundleId,
+            BuiltinKext->Identifier,
             BuiltinKext->PlistPath,
             BuiltinKext->BinaryPath,
             BuiltinKext->OSBundleRequiredValue
             ));
+        }
 
-          //
-          // Scan PlugIns directory.
-          //
-          if (ReadPlugins) {
-            Status = FileKext->Open (FileKext, &FilePlugins, UseContents ? L"Contents\\PlugIns" : L"PlugIns", EFI_FILE_MODE_READ, EFI_FILE_DIRECTORY);
-            if (Status == EFI_SUCCESS) {
-              Status = OcUnicodeSafeSPrint (
-                TmpPath,
-                sizeof (TmpPath),
-                L"%s\\%s\\%s",
-                FilePath,
-                FileInfo->FileName,
-                UseContents ? L"Contents\\PlugIns" : L"PlugIns"
-                );
+        //
+        // Scan PlugIns directory.
+        //
+        if (ReadPlugins) {
+          Status = FileKext->Open (FileKext, &FilePlugins, UseContents ? L"Contents\\PlugIns" : L"PlugIns", EFI_FILE_MODE_READ, EFI_FILE_DIRECTORY);
+          if (Status == EFI_SUCCESS) {
+            Status = OcUnicodeSafeSPrint (
+              TmpPath,
+              sizeof (TmpPath),
+              L"%s\\%s\\%s",
+              FilePath,
+              FileInfo->FileName,
+              UseContents ? L"Contents\\PlugIns" : L"PlugIns"
+              );
 
-              Status = ScanExtensions (Context, FilePlugins, TmpPath, FALSE);
-              FilePlugins->Close (FilePlugins);
-              if (EFI_ERROR (Status)) {
-                FileKext->Close (FileKext);
-                File->SetPosition (File, 0);
-                FreePool (FileInfo);
-                return Status;
-              }
-            } else if (Status != EFI_NOT_FOUND) {
+            Status = ScanExtensions (Context, FilePlugins, TmpPath, FALSE);
+            FilePlugins->Close (FilePlugins);
+            if (EFI_ERROR (Status)) {
               FileKext->Close (FileKext);
               File->SetPosition (File, 0);
               FreePool (FileInfo);
               return Status;
             }
+          } else if (Status != EFI_NOT_FOUND) {
+            FileKext->Close (FileKext);
+            File->SetPosition (File, 0);
+            FreePool (FileInfo);
+            return Status;
           }
-
-          FileKext->Close (FileKext);
         }
+
+        FileKext->Close (FileKext);
       }
     }
   } while (FileInfoSize > 0);
@@ -416,9 +449,9 @@ ScanExtensions (
 
 STATIC
 PATCHED_KEXT*
-LookupPatchedKextForBundleId (
+LookupPatchedKextForIdentifier (
   IN OUT CACHELESS_CONTEXT    *Context,
-  IN     CONST CHAR8          *BundleId
+  IN     CONST CHAR8          *Identifier
   )
 {
   PATCHED_KEXT  *PatchedKext;
@@ -428,7 +461,7 @@ LookupPatchedKextForBundleId (
   while (!IsNull (&Context->PatchedKexts, KextLink)) {
     PatchedKext = GET_PATCHED_KEXT_FROM_LINK (KextLink);
  
-    if (AsciiStrCmp (BundleId, PatchedKext->BundleId) == 0) {
+    if (AsciiStrCmp (Identifier, PatchedKext->Identifier) == 0) {
       return PatchedKext;
     }
 
@@ -440,9 +473,9 @@ LookupPatchedKextForBundleId (
 
 STATIC
 BUILTIN_KEXT*
-LookupBuiltinKextForBundleId (
+LookupBuiltinKextForIdentifier (
   IN OUT CACHELESS_CONTEXT    *Context,
-  IN     CONST CHAR8          *BundleId
+  IN     CONST CHAR8          *Identifier
   )
 {
   BUILTIN_KEXT  *BuiltinKext;
@@ -452,7 +485,7 @@ LookupBuiltinKextForBundleId (
   while (!IsNull (&Context->BuiltInKexts, KextLink)) {
     BuiltinKext = GET_BUILTIN_KEXT_FROM_LINK (KextLink);
  
-    if (AsciiStrCmp (BundleId, BuiltinKext->BundleId) == 0) {
+    if (AsciiStrCmp (Identifier, BuiltinKext->Identifier) == 0) {
       return BuiltinKext;
     }
 
@@ -515,7 +548,7 @@ STATIC
 EFI_STATUS
 ScanDependencies (
   IN OUT CACHELESS_CONTEXT    *Context,
-  IN     CHAR8                *BundleId
+  IN     CHAR8                *Identifier
   )
 {
   EFI_STATUS      Status;
@@ -523,9 +556,9 @@ ScanDependencies (
   DEPEND_KEXT     *DependKext;
   LIST_ENTRY      *KextLink;
 
-  BOOLEAN         DependencyExists;
+  DEBUG ((DEBUG_VERBOSE, "OCAK: Scanning dependencies for %a\n", Identifier));
 
-  BuiltinKext = LookupBuiltinKextForBundleId (Context, BundleId);
+  BuiltinKext = LookupBuiltinKextForIdentifier (Context, Identifier);
   if (BuiltinKext == NULL || BuiltinKext->OSBundleRequiredValue == KEXT_OSBUNDLE_REQUIRED_VALID) {
     //
     // Injected kexts may have dependencies on other injected kexts, which we do not need to handle.
@@ -536,39 +569,16 @@ ScanDependencies (
 
   BuiltinKext->PatchValidOSBundleRequired = TRUE;
 
-  //
-  // Add bundle to list.
-  //
-  DependencyExists  = FALSE;
-  KextLink          = GetFirstNode (&Context->InjectedDependencies);
-  while (!IsNull (&Context->InjectedDependencies, KextLink)) {
-    DependKext = GET_DEPEND_KEXT_FROM_LINK (KextLink);
-
-    if (AsciiStrCmp (DependKext->BundleId, BundleId) == 0) {
-      DependencyExists = TRUE;
-      break;
-    }
-
-    KextLink = GetNextNode (&Context->InjectedDependencies, KextLink);
-  }
-
-  if (!DependencyExists) {
-    DependKext = AllocateZeroPool (sizeof (*DependKext));
-    if (DependKext == NULL) {
-      return EFI_OUT_OF_RESOURCES;
-    }
-    DependKext->Signature = DEPEND_KEXT_SIGNATURE;
-    DependKext->BundleId = AllocateCopyPool (AsciiStrSize (BundleId), BundleId);
-
-    DEBUG ((DEBUG_INFO, "OCAK: Adding built-in dependency %a\n", BundleId));
-    InsertTailList (&Context->InjectedDependencies, &DependKext->Link);
+  Status = AddKextDependency (&Context->InjectedDependencies, Identifier);
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   KextLink = GetFirstNode (&BuiltinKext->Dependencies);
   while (!IsNull (&BuiltinKext->Dependencies, KextLink)) {
     DependKext = GET_DEPEND_KEXT_FROM_LINK (KextLink);
 
-    Status = ScanDependencies (Context, DependKext->BundleId);
+    Status = ScanDependencies (Context, DependKext->Identifier);
     if (EFI_ERROR (Status)) {
       return Status;
     }
@@ -581,43 +591,63 @@ ScanDependencies (
 
 STATIC
 EFI_STATUS
+InternalAddPatchedKext (
+  IN OUT CACHELESS_CONTEXT      *Context,
+  IN     CONST CHAR8            *Identifier,
+     OUT PATCHED_KEXT           **Kext
+  )
+{
+  PATCHED_KEXT *PatchedKext;
+
+  PatchedKext = AllocateZeroPool (sizeof (*PatchedKext));
+  if (PatchedKext == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+  
+  PatchedKext->Signature  = PATCHED_KEXT_SIGNATURE;
+  PatchedKext->Identifier = AllocateCopyPool (AsciiStrSize (Identifier), Identifier);
+  if (PatchedKext->Identifier == NULL) {
+    FreePool (PatchedKext);
+    return EFI_OUT_OF_RESOURCES;
+  }
+  InitializeListHead (&PatchedKext->Patches);
+
+  InsertTailList (&Context->PatchedKexts, &PatchedKext->Link);
+
+  *Kext = PatchedKext;
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
 InternalAddKextPatch (
   IN OUT CACHELESS_CONTEXT      *Context,
-  IN     CONST CHAR8            *BundleId,
+  IN     CONST CHAR8            *Identifier,
   IN     PATCHER_GENERIC_PATCH  *Patch OPTIONAL,
   IN     KERNEL_QUIRK_NAME      QuirkName
   )
 {
+  EFI_STATUS            Status;
   PATCHED_KEXT          *PatchedKext;
   KEXT_PATCH            *KextPatch;
   KERNEL_QUIRK          *KernelQuirk;
 
   if (Patch == NULL) {
     KernelQuirk = &gKernelQuirks[QuirkName];
-    ASSERT (KernelQuirk->BundleId != NULL);
+    ASSERT (KernelQuirk->Identifier != NULL);
 
-    BundleId = KernelQuirk->BundleId;
+    Identifier = KernelQuirk->Identifier;
   }
 
   //
   // Check if bundle is already present. If not, add to list.
   //
-  PatchedKext = LookupPatchedKextForBundleId (Context, BundleId);
+  PatchedKext = LookupPatchedKextForIdentifier (Context, Identifier);
   if (PatchedKext == NULL) {
-    PatchedKext = AllocateZeroPool (sizeof (*PatchedKext));
-    if (PatchedKext == NULL) {
-      return EFI_OUT_OF_RESOURCES;
+    Status = InternalAddPatchedKext (Context, Identifier, &PatchedKext);
+    if (EFI_ERROR (Status)) {
+      return Status;
     }
-    
-    PatchedKext->Signature  = PATCHED_KEXT_SIGNATURE;
-    PatchedKext->BundleId   = AllocateCopyPool (AsciiStrSize (BundleId), BundleId);
-    if (PatchedKext->BundleId == NULL) {
-      FreePool (PatchedKext);
-      return EFI_OUT_OF_RESOURCES;
-    }
-    InitializeListHead (&PatchedKext->Patches);
-
-    InsertTailList (&Context->PatchedKexts, &PatchedKext->Link);
   }
 
   //
@@ -650,7 +680,8 @@ CachelessContextInit (
   IN OUT CACHELESS_CONTEXT    *Context,
   IN     CONST CHAR16         *FileName,
   IN     EFI_FILE_PROTOCOL    *ExtensionsDir,
-  IN     UINT32               KernelVersion
+  IN     UINT32               KernelVersion,
+  IN     BOOLEAN              Is32Bit
   )
 {
   ASSERT (Context != NULL);
@@ -662,6 +693,7 @@ CachelessContextInit (
   Context->ExtensionsDir          = ExtensionsDir;
   Context->ExtensionsDirFileName  = FileName;
   Context->KernelVersion          = KernelVersion;
+  Context->Is32Bit                = Is32Bit;
   
   InitializeListHead (&Context->InjectedKexts);
   InitializeListHead (&Context->InjectedDependencies);
@@ -726,8 +758,8 @@ CachelessContextFree (
     if (BuiltinKext->PlistPath != NULL) {
       FreePool (BuiltinKext->PlistPath);
     }
-    if (BuiltinKext->BundleId != NULL) {
-      FreePool (BuiltinKext->BundleId);
+    if (BuiltinKext->Identifier != NULL) {
+      FreePool (BuiltinKext->Identifier);
     }
     if (BuiltinKext->BinaryFileName != NULL) {
       FreePool (BuiltinKext->BinaryFileName);
@@ -747,6 +779,7 @@ CachelessContextAddKext (
   IN     UINT32               ExecutableSize OPTIONAL
   )
 {
+  EFI_STATUS        Status;
   CACHELESS_KEXT    *NewKext;
 
   XML_DOCUMENT      *InfoPlistDocument;
@@ -864,7 +897,14 @@ CachelessContextAddKext (
         return EFI_INVALID_PARAMETER;
       }
 
-      AddKextDependencies (&Context->InjectedDependencies, InfoPlistLibraries);
+      Status = AddKextDependencies (&Context->InjectedDependencies, InfoPlistLibraries);
+      if (EFI_ERROR (Status)) {
+        XmlDocumentFree (InfoPlistDocument);
+        FreePool (TmpInfoPlist);
+        FreePool (NewKext->PlistData);
+        FreePool (NewKext);
+        return Status;
+      }
     }
   }
 
@@ -935,17 +975,29 @@ CachelessContextAddKext (
 }
 
 EFI_STATUS
+CachelessContextForceKext (
+  IN OUT CACHELESS_CONTEXT    *Context,
+  IN     CONST CHAR8          *Identifier
+  )
+{
+  ASSERT (Context != NULL);
+  ASSERT (Identifier != NULL);
+
+  return AddKextDependency (&Context->InjectedDependencies, Identifier);
+}
+
+EFI_STATUS
 CachelessContextAddPatch (
   IN OUT CACHELESS_CONTEXT      *Context,
-  IN     CONST CHAR8            *BundleId,
+  IN     CONST CHAR8            *Identifier,
   IN     PATCHER_GENERIC_PATCH  *Patch
   )
 {
   ASSERT (Context != NULL);
-  ASSERT (BundleId != NULL);
+  ASSERT (Identifier != NULL);
   ASSERT (Patch != NULL);
 
-  return InternalAddKextPatch (Context, BundleId, Patch, 0);
+  return InternalAddKextPatch (Context, Identifier, Patch, 0);
 }
 
 EFI_STATUS
@@ -957,6 +1009,31 @@ CachelessContextAddQuirk (
   ASSERT (Context != NULL);
 
   return InternalAddKextPatch (Context, NULL, NULL, Quirk);
+}
+
+EFI_STATUS
+CachelessContextBlock (
+  IN OUT CACHELESS_CONTEXT      *Context,
+  IN     CONST CHAR8            *Identifier
+  )
+{
+  EFI_STATUS      Status;
+  PATCHED_KEXT    *PatchedKext;
+
+  //
+  // Check if bundle is already present. If not, add to list.
+  //
+  PatchedKext = LookupPatchedKextForIdentifier (Context, Identifier);
+  if (PatchedKext == NULL) {
+    Status = InternalAddPatchedKext (Context, Identifier, &PatchedKext);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  PatchedKext->Block = TRUE;  
+
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS
@@ -1274,16 +1351,16 @@ CachelessContextHookBuiltin (
     while (!IsNull (&Context->PatchedKexts, KextLink)) {
       PatchedKext = GET_PATCHED_KEXT_FROM_LINK (KextLink);
 
-      BuiltinKext = LookupBuiltinKextForBundleId (Context, PatchedKext->BundleId);
+      BuiltinKext = LookupBuiltinKextForIdentifier (Context, PatchedKext->Identifier);
       if (BuiltinKext == NULL) {
         //
         // Kext is not present, skip.
         //
-        DEBUG ((DEBUG_WARN, "OCAK: Attempted to patch non-existent kext %a\n", PatchedKext->BundleId));
+        DEBUG ((DEBUG_WARN, "OCAK: Attempted to patch non-existent kext %a\n", PatchedKext->Identifier));
         
       } else {
         BuiltinKext->PatchKext = TRUE;
-        Status = ScanDependencies (Context, PatchedKext->BundleId);
+        Status = ScanDependencies (Context, PatchedKext->Identifier);
         if (EFI_ERROR (Status)) {
           return Status;
         }
@@ -1299,20 +1376,22 @@ CachelessContextHookBuiltin (
     while (!IsNull (&Context->InjectedDependencies, KextLink)) {
       DependKext = GET_DEPEND_KEXT_FROM_LINK (KextLink);
 
-      Status = ScanDependencies (Context, DependKext->BundleId);
+      Status = ScanDependencies (Context, DependKext->Identifier);
       if (EFI_ERROR (Status)) {
         return Status;
       }
 
       KextLink = GetNextNode (&Context->InjectedDependencies, KextLink);
     }
+
     Context->BuiltInKextsValid = TRUE;
+    DEBUG ((DEBUG_INFO, "OCAK: Built-in kext cache successfully built\n"));
   }
 
   //
   // Try to get Info.plist.
   //
-  if (OcUnicodeEndsWith (FileName, L"Info.plist")) {
+  if (OcUnicodeEndsWith (FileName, L"Info.plist", FALSE)) {
     BuiltinKext = LookupBuiltinKextForPlistPath (Context, FileName);
     if (BuiltinKext != NULL && BuiltinKext->PatchValidOSBundleRequired) {
       DEBUG ((DEBUG_INFO, "OCAK: Processing plist patches for %s\n", FileName));
@@ -1402,7 +1481,7 @@ CachelessContextHookBuiltin (
     if (BuiltinKext != NULL && BuiltinKext->PatchKext) {
       DEBUG ((DEBUG_INFO, "OCAK: Processing binary patches for %s\n", FileName));
 
-      PatchedKext = LookupPatchedKextForBundleId (Context, BuiltinKext->BundleId);
+      PatchedKext = LookupPatchedKextForIdentifier (Context, BuiltinKext->Identifier);
       if (PatchedKext == NULL) {
         return EFI_INVALID_PARAMETER;
       }
@@ -1412,7 +1491,7 @@ CachelessContextHookBuiltin (
         return Status;
       }
 
-      Status = PatcherInitContextFromBuffer (&Patcher, Buffer, BufferSize);
+      Status = PatcherInitContextFromBuffer (&Patcher, Buffer, BufferSize, Context->Is32Bit);
       if (EFI_ERROR (Status)) {
         FreePool (Buffer);
         return Status;
@@ -1429,8 +1508,8 @@ CachelessContextHookBuiltin (
           Status = KernelApplyQuirk (KextPatch->QuirkName, &Patcher, Context->KernelVersion);
           DEBUG ((
             EFI_ERROR (Status) ? DEBUG_WARN : DEBUG_INFO,
-            "OCAK: Kernel quirk result for %a (%u) - %r\n",
-            PatchedKext->BundleId,
+            "OCAK: Cacheless kernel quirk result for %a (%u) - %r\n",
+            PatchedKext->Identifier,
             KextPatch->QuirkName,
             Status
             ));
@@ -1438,14 +1517,28 @@ CachelessContextHookBuiltin (
           Status = PatcherApplyGenericPatch (&Patcher, &KextPatch->Patch);
           DEBUG ((
             EFI_ERROR (Status) ? DEBUG_WARN : DEBUG_INFO,
-            "OCAK: Kext patcher result for %a (%a) - %r\n",
-            PatchedKext->BundleId,
+            "OCAK: Cacheless patcher result for %a (%a) - %r\n",
+            PatchedKext->Identifier,
             KextPatch->Patch.Comment,
             Status
             ));
         }
 
         KextLink = GetNextNode (&PatchedKext->Patches, KextLink);
+      }
+
+      //
+      // Block kext if requested.
+      //
+      if (PatchedKext->Block) {
+        Status = PatcherBlockKext (&Patcher);
+        DEBUG ((
+          EFI_ERROR (Status) ? DEBUG_WARN : DEBUG_INFO,
+          "OCAK: Cacheless blocker result for %a (%a) - %r\n",
+          PatchedKext->Identifier,
+          KextPatch->Patch.Comment,
+          Status
+          ));
       }
 
       //

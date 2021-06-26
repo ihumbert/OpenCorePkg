@@ -71,6 +71,24 @@
 #define KC_MOSCOW_SEGMENT                         "__MOSCOW101"
 
 //
+// Kernel cache types.
+//
+typedef enum KERNEL_CACHE_TYPE_ {
+  CacheTypeNone,
+  CacheTypeCacheless,
+  CacheTypeMkext,
+  CacheTypePrelinked
+} KERNEL_CACHE_TYPE;
+
+//
+// Macro to print kernel cache type.
+//
+#define PRINT_KERNEL_CACHE_TYPE(a) ( \
+  (a)   == CacheTypeCacheless ? "Cacheless" : \
+  ((a)  == CacheTypeMkext     ? "Mkext" : \
+  (((a) == CacheTypePrelinked ? "Prelinked" : "Kernel"))))
+
+//
 // As PageCount is UINT16, we can only index 2^16 * 4096 Bytes with one chain.
 //
 #define PRELINKED_KEXTS_MAX_SIZE (BIT16 * MACHO_PAGE_SIZE)
@@ -107,6 +125,7 @@
 #define KERNEL_VERSION_MOJAVE_MIN           KERNEL_VERSION (18, 0, 0)
 #define KERNEL_VERSION_CATALINA_MIN         KERNEL_VERSION (19, 0, 0)
 #define KERNEL_VERSION_BIG_SUR_MIN          KERNEL_VERSION (20, 0, 0)
+#define KERNEL_VERSION_MONTEREY_MIN         KERNEL_VERSION (21, 0, 0)
 
 //
 // Maximum kernel versions for each release.
@@ -123,6 +142,7 @@
 #define KERNEL_VERSION_HIGH_SIERRA_MAX      (KERNEL_VERSION_MOJAVE_MIN - 1)
 #define KERNEL_VERSION_MOJAVE_MAX           (KERNEL_VERSION_CATALINA_MIN - 1)
 #define KERNEL_VERSION_CATALINA_MAX         (KERNEL_VERSION_BIG_SUR_MIN - 1)
+#define KERNEL_VERSION_BIG_SUR_MAX          (KERNEL_VERSION_MONTEREY_MIN - 1)
 
 //
 // Prelinked context used for kernel modification.
@@ -156,31 +176,31 @@ typedef struct {
   //
   // Pointer to PRELINK_INFO_SEGMENT.
   //
-  MACH_SEGMENT_COMMAND_64  *PrelinkedInfoSegment;
+  MACH_SEGMENT_COMMAND_ANY *PrelinkedInfoSegment;
   //
   // Pointer to PRELINK_INFO_SECTION.
   //
-  MACH_SECTION_64          *PrelinkedInfoSection;
+  MACH_SECTION_ANY         *PrelinkedInfoSection;
   //
   // Pointer to PRELINK_TEXT_SEGMENT.
   //
-  MACH_SEGMENT_COMMAND_64  *PrelinkedTextSegment;
+  MACH_SEGMENT_COMMAND_ANY *PrelinkedTextSegment;
   //
   // Pointer to PRELINK_TEXT_SECTION.
   //
-  MACH_SECTION_64          *PrelinkedTextSection;
+  MACH_SECTION_ANY         *PrelinkedTextSection;
   //
   // Pointer to PRELINK_STATE_SEGMENT (for 10.6.8).
   //
-  MACH_SEGMENT_COMMAND_64  *PrelinkedStateSegment;
+  MACH_SEGMENT_COMMAND_ANY *PrelinkedStateSegment;
   //
   // Pointer to PRELINK_STATE_SECTION_KERNEL (for 10.6.8).
   //
-  MACH_SECTION_64          *PrelinkedStateSectionKernel;
+  MACH_SECTION_ANY         *PrelinkedStateSectionKernel;
   //
   // Pointer to PRELINK_STATE_SECTION_KEXTS (for 10.6.8).
   //
-  MACH_SECTION_64          *PrelinkedStateSectionKexts;
+  MACH_SECTION_ANY         *PrelinkedStateSectionKexts;
   //
   // Contents of PRELINK_STATE_SECTION_KERNEL section (for 10.6.8).
   //
@@ -204,7 +224,7 @@ typedef struct {
   //
   // Pointer to KC_LINKEDIT_SEGMENT (for KC mode).
   //
-  MACH_SEGMENT_COMMAND_64  *LinkEditSegment;
+  MACH_SEGMENT_COMMAND_ANY *LinkEditSegment;
   //
   // Pointer to KC_REGION0_SEGMENT (for KC mode).
   //
@@ -283,6 +303,10 @@ typedef struct {
   // Kernel virtual base.
   //
   UINT64                   VirtualBase;
+  //
+  // Prelinked is 32-bit.
+  //
+  BOOLEAN                  Is32Bit;
 } PRELINKED_CONTEXT;
 
 //
@@ -294,9 +318,13 @@ typedef struct {
   //
   OC_MACHO_CONTEXT         MachContext;
   //
-  // Virtual base to subtract to obtain file offset.
+  // Virtual base of text segment.
   //
   UINT64                   VirtualBase;
+  //
+  // File offset.
+  //
+  UINT64                   FileOffset;
   //
   // Virtual kmod_info_t address.
   //
@@ -309,6 +337,14 @@ typedef struct {
   // Pointer to KXLD state (read only, it is allocated in PrelinkedStateKexts).
   //
   UINT32                   KxldStateSize;
+  //
+  // Binary is 32-bit.
+  //
+  BOOLEAN                  Is32Bit;
+  //
+  // Patcher context is contained within a kernel collection.
+  //
+  BOOLEAN                  IsKernelCollection;
 } PATCHER_CONTEXT;
 
 //
@@ -389,6 +425,10 @@ typedef struct {
   // Current kernel version.
   //
   UINT32                KernelVersion;
+  //
+  // System is booting in 32-bit mode.
+  //
+  BOOLEAN               Is32Bit;
   //
   // Flag to indicate if above list is valid. List is built during the first read from SLE.
   //
@@ -493,6 +533,10 @@ typedef enum {
   //
   KernelQuirkDummyPowerManagement,
   //
+  // Apply feature flags patches to IOBluetoothFamily kext to ensure full Bluetooth functionality.
+  //
+  KernelQuirkExtendBTFeatureFlags,
+  //
   // Apply icon type patches to IOAHCIPort kext to force internal disk icons.
   //
   KernelQuirkExternalDiskIcons,
@@ -509,6 +553,10 @@ typedef enum {
   //
   KernelQuirkPanicNoKextDump,
   //
+  // Replaces the 64-bit commpage bcopy implementation with one that does not use SSSE3.
+  //
+  KernelQuirkLegacyCommpage,
+  //
   // Disable power state change timeout kernel panic (10.15+).
   //
   KernelQuirkPowerTimeoutKernelPanic,
@@ -523,6 +571,18 @@ typedef enum {
   KernelQuirkXhciPortLimit1,
   KernelQuirkXhciPortLimit2,
   KernelQuirkXhciPortLimit3,
+  //
+  // Remove kernel __LINKEDIT jetisson.
+  //
+  KernelQuirkSegmentJettison,
+  //
+  // Force SecureBoot support for all CPUs.
+  //
+  KernelQuirkForceSecureBootScheme,
+  //
+  // Set custom APFS trim timeout.
+  //
+  KernelQuirkSetApfsTrimTimeout,
 
   KernelQuirkMax
 } KERNEL_QUIRK_NAME;
@@ -542,9 +602,9 @@ EFI_STATUS
 //
 typedef struct {
   //
-  // Target bundle ID. NULL for kernel.
+  // Target bundle identifier. NULL for kernel.
   //
-  CONST CHAR8                   *BundleId;
+  CONST CHAR8                   *Identifier;
   //
   // Quirk patch function.
   //
@@ -674,6 +734,7 @@ OcMatchDarwinVersion (
   @param[in,out] Prelinked           Unpacked prelinked buffer (Mach-O image).
   @param[in]     PrelinkedSize       Unpacked prelinked buffer size.
   @param[in]     PrelinkedAllocSize  Unpacked prelinked buffer allocated size.
+  @param[in]     Is32Bit             TRUE if prelinked is 32-bit.
 
   @return  EFI_SUCCESS on success.
 **/
@@ -682,7 +743,8 @@ PrelinkedContextInit (
   IN OUT  PRELINKED_CONTEXT  *Context,
   IN OUT  UINT8              *Prelinked,
   IN      UINT32             PrelinkedSize,
-  IN      UINT32             PrelinkedAllocSize
+  IN      UINT32             PrelinkedAllocSize,
+  IN      BOOLEAN            Is32Bit
   );
 
 /**
@@ -747,6 +809,7 @@ PrelinkedInjectComplete (
   @param[in]     InfoPlistSize     Kext Info.plist size.
   @param[in]     Executable        Kext executable, optional.
   @param[in]     ExecutableSize    Kext executable size, optional.
+  @param[in]     Is32Bit           TRUE to process 32-bit kext.
 
   @return  EFI_SUCCESS on success.
 **/
@@ -756,13 +819,16 @@ PrelinkedReserveKextSize (
   IN OUT UINT32       *ReservedExeSize,
   IN     UINT32       InfoPlistSize,
   IN     UINT8        *Executable OPTIONAL,
-  IN     UINT32       ExecutableSize OPTIONAL
+  IN     UINT32       ExecutableSize OPTIONAL,
+  IN     BOOLEAN      Is32Bit
   );
 
 /**
   Perform kext injection.
 
   @param[in,out] Context         Prelinked context.
+  @param[in]     Identifier      Kext bundle identifier. If a kext with this identifier
+                                 already exists, the kext will not be injected. Optional.
   @param[in]     BundlePath      Kext bundle path (e.g. /L/E/mykext.kext).
   @param[in,out] InfoPlist       Kext Info.plist.
   @param[in]     InfoPlistSize   Kext Info.plist size.
@@ -775,6 +841,7 @@ PrelinkedReserveKextSize (
 EFI_STATUS
 PrelinkedInjectKext (
   IN OUT PRELINKED_CONTEXT  *Context,
+  IN     CONST CHAR8        *Identifier OPTIONAL,
   IN     CONST CHAR8        *BundlePath,
   IN     CONST CHAR8        *InfoPlist,
   IN     UINT32             InfoPlistSize,
@@ -787,7 +854,7 @@ PrelinkedInjectKext (
   Apply kext patch to prelinked.
 
   @param[in,out] Context         Prelinked context.
-  @param[in]     BundleId        Kext bundle ID.
+  @param[in]     Identifier      Kext bundle identifier.
   @param[in]     Patch           Patch to apply.
 
   @return  EFI_SUCCESS on success.
@@ -795,7 +862,7 @@ PrelinkedInjectKext (
 EFI_STATUS
 PrelinkedContextApplyPatch (
   IN OUT PRELINKED_CONTEXT      *Context,
-  IN     CONST CHAR8            *BundleId,
+  IN     CONST CHAR8            *Identifier,
   IN     PATCHER_GENERIC_PATCH  *Patch
   );
 
@@ -813,6 +880,20 @@ PrelinkedContextApplyQuirk (
   IN OUT PRELINKED_CONTEXT    *Context,
   IN     KERNEL_QUIRK_NAME    Quirk,
   IN     UINT32               KernelVersion
+  );
+
+/**
+  Block kext in prelinked.
+
+  @param[in,out] Context         Prelinked context.
+  @param[in]     Identifier      Kext bundle identifier.
+
+  @return  EFI_SUCCESS on success.
+**/
+EFI_STATUS
+PrelinkedContextBlock (
+  IN OUT PRELINKED_CONTEXT      *Context,
+  IN     CONST CHAR8            *Identifier
   );
 
 /**
@@ -952,6 +1033,7 @@ PatcherInitContextFromMkext(
   @param[in,out] Context         Patcher context.
   @param[in,out] Buffer          Kernel buffer (could be prelinked).
   @param[in]     BufferSize      Kernel buffer size.
+  @param[in]     Is32Bit         TRUE to use 32-bit.
 
   @return  EFI_SUCCESS on success.
 **/
@@ -959,7 +1041,8 @@ EFI_STATUS
 PatcherInitContextFromBuffer (
   IN OUT PATCHER_CONTEXT    *Context,
   IN OUT UINT8              *Buffer,
-  IN     UINT32             BufferSize
+  IN     UINT32             BufferSize,
+  IN     BOOLEAN            Use32Bit
   );
 
 /**
@@ -1005,12 +1088,41 @@ PatcherBlockKext (
   );
 
 /**
+  Find kmod address.
+
+  @param[in]  ExecutableContext   Mach-O context.
+  @param[in]  LoadAddress         Load address.
+  @param[in]  Size                Executable size.
+  @param[out] Kmod                Pointer to kmod.
+
+  @return  TRUE on success.
+**/
+BOOLEAN
+KextFindKmodAddress (
+  IN  OC_MACHO_CONTEXT  *ExecutableContext,
+  IN  UINT64            LoadAddress,
+  IN  UINT32            Size,
+  OUT UINT64            *Kmod
+  );
+
+/**
+  Set timeout value in microseconds for KernelQuirkSetApfsTrimTimeout quirk.
+
+  @param[in]  Timeout   Timeout in microseconds.
+**/
+VOID
+PatchSetApfsTimeout (
+  IN UINT32  Timeout
+  );
+
+/**
   Apply modification to CPUID 1.
 
-  @param Patcher  Patcher context.
-  @param CpuInfo  CPU information.
-  @param Data     4 32-bit integers with CPUID data.
-  @param DataMask 4 32-bit integers with CPUID enabled overrides data.
+  @param Patcher        Patcher context.
+  @param CpuInfo        CPU information.
+  @param Data           4 32-bit integers with CPUID data.
+  @param DataMask       4 32-bit integers with CPUID enabled overrides data.
+  @param KernelVersion  Current kernel version.
 
   @return  EFI_SUCCESS on success.
 **/
@@ -1019,7 +1131,24 @@ PatchKernelCpuId (
   IN OUT PATCHER_CONTEXT  *Patcher,
   IN     OC_CPU_INFO      *CpuInfo,
   IN     UINT32           *Data,
-  IN     UINT32           *DataMask
+  IN     UINT32           *DataMask,
+  IN     UINT32           KernelVersion
+  );
+
+/**
+  Apply current CPU information patches.
+
+  @param Patcher        Patcher context.
+  @param CpuInfo        CPU information.
+  @param KernelVersion  Current kernel version.
+
+  @return  EFI_SUCCESS on success.
+**/
+EFI_STATUS
+PatchProvideCurrentCpuInfo(
+  IN OUT PATCHER_CONTEXT  *Patcher,
+  IN     OC_CPU_INFO      *CpuInfo,
+  IN     UINT32           KernelVersion
   );
 
 /**
@@ -1030,6 +1159,7 @@ PatchKernelCpuId (
   @param[in]     FileName            Extensions directory filename.
   @param[in]     ExtensionsDir       Extensions directory EFI_FILE_PROTOCOL. 
   @param[in]     KernelVersion       Current kernel version.
+  @param[in]     Is32Bit             TRUE if booting in 32-bit kernel mode.
 
   @return  EFI_SUCCESS on success.
 **/
@@ -1038,7 +1168,8 @@ CachelessContextInit (
   IN OUT CACHELESS_CONTEXT    *Context,
   IN     CONST CHAR16         *FileName,
   IN     EFI_FILE_PROTOCOL    *ExtensionsDir,
-  IN     UINT32               KernelVersion
+  IN     UINT32               KernelVersion,
+  IN     BOOLEAN              Is32Bit
   );
 
 /**
@@ -1074,10 +1205,24 @@ CachelessContextAddKext (
   );
 
 /**
+  Force built-in kext to load.
+
+  @param[in,out] Context         Cacheless context.
+  @param[in]     Identifier      Kext bundle identifier.
+
+  @return  EFI_SUCCESS on success.
+**/
+EFI_STATUS
+CachelessContextForceKext (
+  IN OUT CACHELESS_CONTEXT    *Context,
+  IN     CONST CHAR8          *Identifier
+  );
+
+/**
   Add patch to cacheless context to be applied later on.
 
   @param[in,out] Context         Cacheless context.
-  @param[in]     BundleId        Kext bundle ID.
+  @param[in]     Identifier      Kext bundle identifier.
   @param[in]     Patch           Patch to apply.
 
   @return  EFI_SUCCESS on success.
@@ -1085,7 +1230,7 @@ CachelessContextAddKext (
 EFI_STATUS
 CachelessContextAddPatch (
   IN OUT CACHELESS_CONTEXT      *Context,
-  IN     CONST CHAR8            *BundleId,
+  IN     CONST CHAR8            *Identifier,
   IN     PATCHER_GENERIC_PATCH  *Patch
   );
 
@@ -1101,6 +1246,20 @@ EFI_STATUS
 CachelessContextAddQuirk (
   IN OUT CACHELESS_CONTEXT    *Context,
   IN     KERNEL_QUIRK_NAME    Quirk
+  );
+
+/**
+  Add block request to cacheless context to be applied later on.
+
+  @param[in,out] Context         Cacheless context.
+  @param[in]     Identifier      Kext bundle identifier.
+
+  @return  EFI_SUCCESS on success.
+**/
+EFI_STATUS
+CachelessContextBlock (
+  IN OUT CACHELESS_CONTEXT      *Context,
+  IN     CONST CHAR8            *Identifier
   );
 
 /**
@@ -1233,6 +1392,7 @@ MkextContextFree (
   @param[in]     InfoPlistSize     Kext Info.plist size.
   @param[in]     Executable        Kext executable, optional.
   @param[in]     ExecutableSize    Kext executable size, optional.
+  @param[in]     Is32Bit           TRUE to process 32-bit kext.
 
   @return  EFI_SUCCESS on success.
 **/
@@ -1241,14 +1401,17 @@ MkextReserveKextSize (
   IN OUT UINT32       *ReservedInfoSize,
   IN OUT UINT32       *ReservedExeSize,
   IN     UINT32       InfoPlistSize,
-  IN     UINT8        *Executable,
-  IN     UINT32       ExecutableSize OPTIONAL
+  IN     UINT8        *Executable OPTIONAL,
+  IN     UINT32       ExecutableSize OPTIONAL,
+  IN     BOOLEAN      Is32Bit
   );
 
 /**
   Perform mkext kext injection.
 
   @param[in,out] Context          Mkext context.
+  @param[in]     Identifier       Kext bundle identifier. If a kext with this identifier
+                                  already exists, the kext will not be injected. Optional.
   @param[in]     BundlePath       Kext bundle path (e.g. /L/E/mykext.kext).
   @param[in,out] InfoPlist        Kext Info.plist.
   @param[in]     InfoPlistSize    Kext Info.plist size.
@@ -1260,6 +1423,7 @@ MkextReserveKextSize (
 EFI_STATUS
 MkextInjectKext (
   IN OUT MKEXT_CONTEXT      *Context,
+  IN     CONST CHAR8        *Identifier OPTIONAL,
   IN     CONST CHAR8        *BundlePath,
   IN     CONST CHAR8        *InfoPlist,
   IN     UINT32             InfoPlistSize,
@@ -1271,7 +1435,7 @@ MkextInjectKext (
   Apply kext patch to mkext.
 
   @param[in,out] Context         Mkext context.
-  @param[in]     BundleId        Kext bundle ID.
+  @param[in]     Identifier      Kext bundle identifier.
   @param[in]     Patch           Patch to apply.
 
   @return  EFI_SUCCESS on success.
@@ -1279,7 +1443,7 @@ MkextInjectKext (
 EFI_STATUS
 MkextContextApplyPatch (
   IN OUT MKEXT_CONTEXT          *Context,
-  IN     CONST CHAR8            *BundleId,
+  IN     CONST CHAR8            *Identifier,
   IN     PATCHER_GENERIC_PATCH  *Patch
   );
 
@@ -1297,6 +1461,20 @@ MkextContextApplyQuirk (
   IN OUT MKEXT_CONTEXT        *Context,
   IN     KERNEL_QUIRK_NAME    Quirk,
   IN     UINT32               KernelVersion
+  );
+
+/**
+  Block kext in mkext.
+
+  @param[in,out] Context         Mkext context.
+  @param[in]     Identifier      Kext bundle identifier.
+
+  @return  EFI_SUCCESS on success.
+**/
+EFI_STATUS
+MkextContextBlock (
+  IN OUT MKEXT_CONTEXT          *Context,
+  IN     CONST CHAR8            *Identifier
   );
 
 /**

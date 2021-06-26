@@ -62,7 +62,7 @@ SmcPlatform:
   - 0x00
 # FIXME: check
 SmcEPCI: 0x7B002
-OEMStrings: ""
+OEMStrings: |-
 Specifications:
   CPUCodename:
     - "Yonah"
@@ -74,7 +74,8 @@ Specifications:
     - "667 MHz DDR2 SDRAM (PC2-5300)"
   SystemReportName:
     - "MacBook Pro (17-inch)"
-  MarketingName: ""
+  MarketingName:
+    - "MacBook Pro (17-inch)"
 # Note, first model code is used by macserial
 AppleModelCode:
   - "THY"

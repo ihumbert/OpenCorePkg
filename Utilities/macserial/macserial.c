@@ -1,7 +1,8 @@
 //
 // Decode mac serial number
 //
-// Copyright (c) 2018 vit9696
+// Copyright (c) 2018-2020 vit9696
+// Copyright (c) 2020 Matis Schotte
 //
 
 #include <limits.h>
@@ -16,6 +17,8 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #endif
+
+#include <UserPseudoRandom.h>
 
 #include "macserial.h"
 #include "modelinfo.h"
@@ -117,64 +120,6 @@ static bool verify_mlb_checksum(const char *mlb, size_t len) {
     }
   }
   return checksum % (sizeof(alphabet) - 1) == 0;
-}
-
-// Taken from https://en.wikipedia.org/wiki/Xorshift#Example_implementation
-// I am not positive what is better to use here (especially on Windows).
-// Fortunately we only need something only looking random.
-static uint32_t pseudo_random(void) {
- #ifdef __GNUC__
-    if (arc4random)
-      return arc4random();
-#endif
-
-  static uint32_t state;
-
-  if (!state) {
-    fprintf(stderr, "Warning: arc4random is not available!\n");
-    state = (uint32_t)time(NULL);
-  }
-
-  uint32_t x = state;
-  x ^= x << 13;
-  x ^= x >> 17;
-  x ^= x << 5;
-  state = x;
-  return x;
-}
-
-// Taken from https://opensource.apple.com/source/Libc/Libc-1082.50.1/gen/FreeBSD/arc4random.c
-// Mac OS X 10.6.8 and earlier do not have arc4random_uniform, so we implement one.
-static uint32_t pseudo_random_between(uint32_t from, uint32_t to) {
-  uint32_t upper_bound = to + 1 - from;
-
-#ifdef __GNUC__
-  // Prefer native implementation if available.
-  if (arc4random_uniform)
-    return from + arc4random_uniform(upper_bound);
-#endif
-
-  uint32_t r, min;
-
-  if (upper_bound < 2)
-    return from;
-
-#if (ULONG_MAX > 0xffffffffUL)
-  min = 0x100000000UL % upper_bound;
-#else
-  if (upper_bound > 0x80000000)
-    min = 1 + ~upper_bound;
-  else
-    min = ((0xffffffff - (upper_bound * 2)) + 1) % upper_bound;
-#endif
-
-  for (;;) {
-    r = pseudo_random();
-    if (r >= min)
-      break;
-  }
-
-  return from + r % upper_bound;
 }
 
 static int32_t get_current_model(void) {
@@ -352,7 +297,10 @@ static bool get_serial_info(const char *serial, SERIALINFO *info, bool print) {
     // New encoding started in 2010.
     info->decodedYear = alpha_to_value(info->year[0], AppleTblYear, AppleYearBlacklist);
     // Since year can be encoded ambiguously, check the model code for 2010/2020 difference.
-    if (info->decodedYear == 0 && info->model[0] >= 'H') {
+    // Old check relies on first letter of model to be greater than or equal to H, which breaks compatibility with iMac20,2 (=0).
+    // Added logic checks provided model years `AppleModelYear` first year greater than or equal to 2020.
+    if ((info->modelIndex >= 0 && AppleModelYear[info->modelIndex][0] >= 2017 && info->decodedYear < 7)
+      || (info->decodedYear == 0 && info->model[0] >= 'H')) {
       info->decodedYear += 2020;
     } else if (info->decodedYear >= 0) {
       info->decodedYear += 2010;
@@ -500,7 +448,7 @@ static bool get_serial(SERIALINFO *info) {
 
   if (info->decodedYear < 0) {
     if (info->modelIndex < 0)
-      info->decodedYear = country_len == COUNTRY_OLD_LEN ? SERIAL_YEAR_OLD_MAX : SERIAL_YEAR_NEW_MAX;
+      info->decodedYear = country_len == COUNTRY_OLD_LEN ? SERIAL_YEAR_OLD_MAX : SERIAL_YEAR_NEW_MID;
     else
       info->decodedYear = (int32_t)get_production_year((AppleModel)info->modelIndex, false);
   }
@@ -525,7 +473,7 @@ static bool get_serial(SERIALINFO *info) {
     }
 
     size_t base_new_year = 2010;
-    if (info->decodedYear == SERIAL_YEAR_NEW_MAX) {
+    if (info->decodedYear >= SERIAL_YEAR_NEW_MID) {
       base_new_year = 2020;
     }
 
@@ -556,6 +504,10 @@ static bool get_serial(SERIALINFO *info) {
 
 static void get_mlb(SERIALINFO *info, char *dst, size_t sz) {
   // This is a direct reverse from CCC, rework it later...
+  if (info->modelIndex < 0) {
+    printf("WARN: Unknown model, assuming default!\n");
+    info->modelIndex = APPLE_MODEL_MAX - 1;
+  }
   do {
     uint32_t year = 0, week = 0;
 

@@ -15,10 +15,11 @@
 #ifndef OC_AUDIO_PROTOCOL_H
 #define OC_AUDIO_PROTOCOL_H
 
+#include <Protocol/AudioIo.h>
 #include <Protocol/AppleVoiceOver.h>
 #include <Protocol/DevicePath.h>
 
-#define OC_AUDIO_PROTOCOL_REVISION  0x010000
+#define OC_AUDIO_PROTOCOL_REVISION  0x020000
 
 //
 // OC_AUDIO_PROTOCOL_GUID
@@ -78,31 +79,36 @@ typedef enum {
   OcVoiceOverAudioFileAbortTimeout          = 0x1030,
   OcVoiceOverAudioFileChooseOS              = 0x1031,
   OcVoiceOverAudioFileDefault               = 0x1032,
-  OcVoiceOverAudioFileEnterPassword         = 0x1033,
-  OcVoiceOverAudioFileExecutionFailure      = 0x1034,
-  OcVoiceOverAudioFileExecutionSuccessful   = 0x1035,
-  OcVoiceOverAudioFileExternal              = 0x1036,
-  OcVoiceOverAudioFileExternalOS            = 0x1037,
-  OcVoiceOverAudioFileExternalTool          = 0x1038,
-  OcVoiceOverAudioFileLoading               = 0x1039,
-  OcVoiceOverAudioFilemacOS                 = 0x103A,
-  OcVoiceOverAudioFilemacOS_Recovery        = 0x103B,
-  OcVoiceOverAudioFilemacOS_TimeMachine     = 0x103C,
-  OcVoiceOverAudioFilemacOS_UpdateFw        = 0x103D,
-  OcVoiceOverAudioFileOtherOS               = 0x103E,
-  OcVoiceOverAudioFilePasswordAccepted      = 0x103F,
-  OcVoiceOverAudioFilePasswordIncorrect     = 0x1040,
-  OcVoiceOverAudioFilePasswordRetryLimit    = 0x1041,
-  OcVoiceOverAudioFileReloading             = 0x1042,
-  OcVoiceOverAudioFileResetNVRAM            = 0x1043,
-  OcVoiceOverAudioFileSelected              = 0x1044,
-  OcVoiceOverAudioFileShowAuxiliary         = 0x1045,
-  OcVoiceOverAudioFileTimeout               = 0x1046,
-  OcVoiceOverAudioFileUEFI_Shell            = 0x1047,
-  OcVoiceOverAudioFileWelcome               = 0x1048,
-  OcVoiceOverAudioFileWindows               = 0x1049,
+  OcVoiceOverAudioFileDiskImage             = 0x1033,
+  OcVoiceOverAudioFileEnterPassword         = 0x1034,
+  OcVoiceOverAudioFileExecutionFailure      = 0x1035,
+  OcVoiceOverAudioFileExecutionSuccessful   = 0x1036,
+  OcVoiceOverAudioFileExternal              = 0x1037,
+  OcVoiceOverAudioFileExternalOS            = 0x1038,
+  OcVoiceOverAudioFileExternalTool          = 0x1039,
+  OcVoiceOverAudioFileLoading               = 0x103A,
+  OcVoiceOverAudioFilemacOS                 = 0x103B,
+  OcVoiceOverAudioFilemacOS_Recovery        = 0x103C,
+  OcVoiceOverAudioFilemacOS_TimeMachine     = 0x103D,
+  OcVoiceOverAudioFilemacOS_UpdateFw        = 0x103E,
+  OcVoiceOverAudioFileOtherOS               = 0x103F,
+  OcVoiceOverAudioFilePasswordAccepted      = 0x1040,
+  OcVoiceOverAudioFilePasswordIncorrect     = 0x1041,
+  OcVoiceOverAudioFilePasswordRetryLimit    = 0x1042,
+  OcVoiceOverAudioFileReloading             = 0x1043,
+  OcVoiceOverAudioFileResetNVRAM            = 0x1044,
+  OcVoiceOverAudioFileRestart               = 0x1045,
+  OcVoiceOverAudioFileSelected              = 0x1046,
+  OcVoiceOverAudioFileShowAuxiliary         = 0x1047,
+  OcVoiceOverAudioFileShutDown              = 0x1048,
+  OcVoiceOverAudioFileSIPIsDisabled         = 0x1049,
+  OcVoiceOverAudioFileSIPIsEnabled          = 0x104A,
+  OcVoiceOverAudioFileTimeout               = 0x104B,
+  OcVoiceOverAudioFileUEFI_Shell            = 0x104C,
+  OcVoiceOverAudioFileWelcome               = 0x104D,
+  OcVoiceOverAudioFileWindows               = 0x104E,
 
-  OcVoiceOverAudioFileMax                   = 0x104A,
+  OcVoiceOverAudioFileMax                   = 0x104F,
 } OC_VOICE_OVER_AUDIO_FILE;
 
 STATIC_ASSERT (OcVoiceOverAudioFileIndexMax - OcVoiceOverAudioFileIndexBase == 9 + 26, "Invalid index count");
@@ -138,6 +144,9 @@ EFI_STATUS
   @paran[in]      LanguageCode Language code for the file.
   @param[out]     Buffer       Pointer to buffer.
   @param[out]     BufferSize   Pointer to buffer size.
+  @param[out]     Frequency    Decoded PCM frequency.
+  @param[out]     Bits         Decoded bit count.
+  @param[out]     Channels     Decoded amount of channels.
 
   @retval EFI_SUCCESS on successful file lookup.
 **/
@@ -148,7 +157,10 @@ EFI_STATUS
   IN  UINT32                          File,
   IN  APPLE_VOICE_OVER_LANGUAGE_CODE  LanguageCode,
   OUT UINT8                           **Buffer,
-  OUT UINT32                          *BufferSize
+  OUT UINT32                          *BufferSize,
+  OUT EFI_AUDIO_IO_PROTOCOL_FREQ      *Frequency,
+  OUT EFI_AUDIO_IO_PROTOCOL_BITS      *Bits,
+  OUT UINT8                           *Channels
   );
 
 /**
@@ -217,6 +229,21 @@ EFI_STATUS
   IN     BOOLEAN                    Wait
   );
 
+/**
+  Set playback delay.
+
+  @param[in,out] This         Audio protocol instance.
+  @param[in]     Delay        Delay after audio configuration in microseconds.
+
+  @return previous delay, defaults to 0.
+**/
+typedef
+UINTN
+(EFIAPI* OC_AUDIO_SET_DELAY) (
+  IN OUT OC_AUDIO_PROTOCOL          *This,
+  IN     UINTN                      Delay
+  );
+
 //
 // Includes a revision for debugging reasons.
 //
@@ -226,6 +253,7 @@ struct OC_AUDIO_PROTOCOL_ {
   OC_AUDIO_SET_PROVIDER   SetProvider;
   OC_AUDIO_PLAY_FILE      PlayFile;
   OC_AUDIO_STOP_PLAYBACK  StopPlayback;
+  OC_AUDIO_SET_DELAY      SetDelay;
 };
 
 extern EFI_GUID gOcAudioProtocolGuid;

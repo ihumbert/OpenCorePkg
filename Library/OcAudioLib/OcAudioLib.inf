@@ -32,11 +32,11 @@
 
 [Sources]
   OcAudio.c
+  OcAudioDump.c
   OcAudioGenBeep.c
   OcAudioLib.c
   OcAudioInternal.h
   OcAudioVoiceOver.c
-  OcAudioWave.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -49,6 +49,8 @@
 [Protocols]
   gAppleVOAudioProtocolGuid
   gAppleBeepGenProtocolGuid
+  gEfiHdaControllerInfoProtocolGuid
+  gEfiHdaCodecInfoProtocolGuid
   gAppleHighDefinitionAudioProtocolGuid
   gEfiAudioIoProtocolGuid
   gOcAudioProtocolGuid

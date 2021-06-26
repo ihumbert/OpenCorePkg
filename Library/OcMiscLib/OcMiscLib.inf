@@ -35,17 +35,20 @@
   gEfiPciIoProtocolGuid
   gEfiShellParametersProtocolGuid
   gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
 
 [LibraryClasses]
   BaseLib
+  HobLib
+  IoLib
   UefiLib
   OcFileLib
   OcGuardLib
   OcStringLib
 
 [Sources]
+  ConsoleUtils.c
   DataPatcher.c
-  DirectReset.c
-  ReleaseUsbOwnership.c
+  ImageRunner.c
+  PlatformInfo.c
   ProtocolSupport.c
-  Math.c

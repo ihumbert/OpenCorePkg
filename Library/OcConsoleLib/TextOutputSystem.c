@@ -264,7 +264,7 @@ ConsoleControlSetMode (
       );
 
     if (!EFI_ERROR (Status)) {
-      Status = GraphicsOutput->Blt (
+      GraphicsOutput->Blt (
         GraphicsOutput,
         &mEfiBackgroundColors[BitFieldRead32 ((UINT32) gST->ConOut->Mode->Attribute, 4, 6)],
         EfiBltVideoFill,
@@ -292,7 +292,7 @@ ConsoleControlSetMode (
   //
   if (Mode == EfiConsoleControlScreenGraphics) {
     gST->ConOut->EnableCursor (gST->ConOut, FALSE);
-    gST->ConOut->SetCursorPosition (gST->ConOut, 0, 0);  
+    gST->ConOut->SetCursorPosition (gST->ConOut, 0, 0);
   }
 
   return EFI_SUCCESS;
@@ -324,7 +324,7 @@ mConsoleControlProtocol = {
   ConsoleControlLockStdIn
 };
 
-VOID
+EFI_STATUS
 OcUseSystemTextOutput (
   IN OC_CONSOLE_RENDERER          Renderer,
   IN BOOLEAN                      IgnoreTextOutput,
@@ -365,4 +365,6 @@ OcUseSystemTextOutput (
     mOriginalClearScreen      = gST->ConOut->ClearScreen;
     gST->ConOut->ClearScreen  = ControlledClearScreen;
   }
+
+  return EFI_SUCCESS;
 }

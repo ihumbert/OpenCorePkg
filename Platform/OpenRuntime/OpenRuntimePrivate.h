@@ -33,7 +33,7 @@ extern OC_FWRT_CONFIG  gOverrideConfig;
 **/
 extern OC_FWRT_CONFIG  *gCurrentConfig;
 
-#define OC_GL_BOOT_OPTION_START 0xF000
+#define OC_VARIABLE_NAME_SIZE 256
 
 VOID
 RedirectRuntimeServices (
@@ -47,5 +47,11 @@ FwOnGetVariable (
   OUT EFI_GET_VARIABLE  *OrgGetVariable  OPTIONAL
   );
 
+EFI_STATUS
+EFIAPI
+FwOnSetAddressMap (
+  IN  EFI_SET_VIRTUAL_ADDRESS_MAP  SetAddressMap  OPTIONAL,
+  IN  BOOLEAN                      Enabled
+  );
 
-#endif // FIRMWARE_RUNTIME_SERVICES_PRIVATE_H
+#endif // OPEN_RUNTIME_PRIVATE_H

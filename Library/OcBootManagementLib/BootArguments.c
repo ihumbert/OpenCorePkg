@@ -19,8 +19,11 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/OcBootManagementLib.h>
 #include <Library/OcMiscLib.h>
+#include <Library/PrintLib.h>
 #include <Library/UefiLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+
+#include "BootManagementInternal.h"
 
 VOID
 OcParseBootArgs (
@@ -44,6 +47,10 @@ OcParseBootArgs (
 
     Arguments->CommandLine = &BA1->CommandLine[0];
 
+    Arguments->KernelAddrP = &BA1->kaddr;
+    Arguments->SystemTableP = &BA1->efiSystemTable;
+    Arguments->RuntimeServicesPG = &BA1->efiRuntimeServicesPageStart;
+    Arguments->RuntimeServicesV = &BA1->efiRuntimeServicesVirtualPageStart;
     Arguments->DeviceTreeP = &BA1->deviceTreeP;
     Arguments->DeviceTreeLength = &BA1->deviceTreeLength;
     Arguments->SystemTable = (EFI_SYSTEM_TABLE*)(UINTN) BA1->efiSystemTable;
@@ -58,6 +65,10 @@ OcParseBootArgs (
 
     Arguments->CommandLine = &BA2->CommandLine[0];
 
+    Arguments->KernelAddrP = &BA2->kaddr;
+    Arguments->SystemTableP = &BA2->efiSystemTable;
+    Arguments->RuntimeServicesPG = &BA2->efiRuntimeServicesPageStart;
+    Arguments->RuntimeServicesV = &BA2->efiRuntimeServicesVirtualPageStart;
     Arguments->DeviceTreeP = &BA2->deviceTreeP;
     Arguments->DeviceTreeLength = &BA2->deviceTreeLength;
     Arguments->SystemTable = (EFI_SYSTEM_TABLE*)(UINTN) BA2->efiSystemTable;
@@ -111,23 +122,31 @@ OcRemoveArgumentFromCmd (
   IN     CONST CHAR8  *Argument
   )
 {
-  CHAR8 *Match;
+  CHAR8  *Match;
+  CHAR8  *Updated;
+  UINTN  ArgumentLength;
 
-  Match = NULL;
+  ArgumentLength = AsciiStrLen (Argument);
+  Match = CommandLine;
 
   do {
-    Match = AsciiStrStr (CommandLine, Argument);
-    if (Match && (Match == CommandLine || *(Match - 1) == ' ')) {
+    Match = AsciiStrStr (Match, Argument);
+    if (Match != NULL && (Match == CommandLine || *(Match - 1) == ' ')
+      && (Match[ArgumentLength - 1] == '='
+        || Match[ArgumentLength] == ' '
+        || Match[ArgumentLength] == '\0')) {
       while (*Match != ' ' && *Match != '\0') {
         *Match++ = ' ';
       }
+    } else if (Match != NULL) {
+      ++Match;
     }
   } while (Match != NULL);
 
   //
   // Write zeroes to reduce data leak
   //
-  CHAR8 *Updated = CommandLine;
+  Updated = CommandLine;
 
   while (CommandLine[0] == ' ') {
     CommandLine++;
@@ -156,10 +175,7 @@ OcAppendArgumentToCmd (
   UINTN      Len = AsciiStrLen (CommandLine);
 
   if (Context != NULL) {
-    Status = Context->RequestPrivilege (
-      Context,
-      OcPrivilegeAuthorized
-      );
+    Status = InternalRunRequestPrivilege (Context, OcPrivilegeAuthorized);
     if (EFI_ERROR (Status)) {
       if (Status != EFI_ABORTED) {
         ASSERT (FALSE);
@@ -184,6 +200,79 @@ OcAppendArgumentToCmd (
   }
 
   AsciiStrnCpyS (CommandLine, ArgumentLength + 1, Argument, ArgumentLength + 1);
+  return TRUE;
+}
+
+BOOLEAN
+OcAppendArgumentsToLoadedImage (
+  IN OUT EFI_LOADED_IMAGE_PROTOCOL  *LoadedImage,
+  IN     CONST CHAR8                **Arguments,
+  IN     UINT32                     ArgumentCount,
+  IN     BOOLEAN                    Replace
+  )
+{
+  UINT32  Index;
+  UINTN   ArgumentLength;
+  UINTN   TotalLength;
+  CHAR16  *NewArguments;
+  CHAR16  *Walker;
+
+  ASSERT (LoadedImage != NULL);
+  ASSERT (Arguments != NULL);
+  ASSERT (ArgumentCount > 0);
+
+  TotalLength = 0;
+
+  //
+  // Count length including spaces between or '\0' for the last argument.
+  //
+  for (Index = 0; Index < ArgumentCount; ++Index) {
+    ArgumentLength = AsciiStrSize (Arguments[Index]);
+    if (OcOverflowAddUN (TotalLength, ArgumentLength, &TotalLength)) {
+      return FALSE;
+    }
+  }
+
+  if (OcOverflowMulUN (TotalLength, sizeof (CHAR16), &TotalLength)) {
+    return FALSE;
+  }
+
+  Replace |= LoadedImage->LoadOptionsSize < sizeof (CHAR16);
+  if (!Replace
+    && OcOverflowTriAddUN (TotalLength, sizeof (CHAR16), LoadedImage->LoadOptionsSize, &TotalLength)) {
+    return FALSE;
+  }
+
+  NewArguments = AllocatePool (TotalLength);
+  if (NewArguments == NULL) {
+    return FALSE;
+  }
+
+  Walker = NewArguments;
+  for (Index = 0; Index < ArgumentCount; ++Index) {
+    if (Index != 0) {
+      *Walker++ = ' ';
+    }
+
+    ArgumentLength = AsciiStrLen (Arguments[Index]);
+    AsciiStrToUnicodeStrS (
+      Arguments[Index],
+      Walker,
+      ArgumentLength + 1
+      );
+    Walker += ArgumentLength;
+  }
+
+  if (!Replace) {
+    *Walker++ = ' ';
+    CopyMem (Walker, LoadedImage->LoadOptions, LoadedImage->LoadOptionsSize);
+    Walker += LoadedImage->LoadOptionsSize / sizeof (CHAR16);
+    *Walker++ = '\0';
+  }
+
+  LoadedImage->LoadOptions = NewArguments;
+  LoadedImage->LoadOptionsSize = (UINT32) TotalLength;
+
   return TRUE;
 }
 
@@ -262,7 +351,7 @@ OcCheckArgumentFromEnv (
     }
   }
 
-  if (HasArgument) {
+  if (HasArgument && Value != NULL) {
     *Value = AllocateCopyPool (AsciiStrnSizeS (ArgValue, ArgValueLength), ArgValue);
     if (*Value == NULL) {
       return FALSE;

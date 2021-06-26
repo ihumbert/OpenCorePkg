@@ -13,6 +13,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Guid/UsbKeyBoardLayout.h>
 
+#include <Library/ResetSystemLib.h>
+
 USB_KEYBOARD_LAYOUT_PACK_BIN  mUsbKeyboardLayoutBin = {
   sizeof (USB_KEYBOARD_LAYOUT_PACK_BIN),   // Binary size
 
@@ -258,7 +260,7 @@ UINT8 EfiKeyToUsbKeyCodeConvertionTable[] = {
 };
 
 //
-// Keyboard modifier value to EFI Scan Code convertion table
+// Keyboard modifier value to EFI Scan Code conversion table
 // EFI Scan Code and the modifier values are defined in UEFI spec.
 //
 UINT8 ModifierValueToEfiScanCodeConvertionTable[] = {
@@ -309,56 +311,6 @@ UINT8 ModifierValueToEfiScanCodeConvertionTable[] = {
   SCAN_NULL,       // EFI_MENU_MODIFER
 };
 
-/**
-  Initialize Key Convention Table by using default keyboard layout.
-
-  @param  UsbKeyboardDevice    The USB_KB_DEV instance.
-
-  @retval EFI_SUCCESS          The default keyboard layout was installed successfully
-  @retval Others               Failure to install default keyboard layout.
-**/
-EFI_STATUS
-InstallDefaultKeyboardLayout (
-   IN OUT USB_KB_DEV           *UsbKeyboardDevice
-  )
-{
-  EFI_STATUS                   Status;
-  EFI_HII_DATABASE_PROTOCOL    *HiiDatabase;
-  EFI_HII_HANDLE               HiiHandle;
-
-  //
-  // Locate Hii database protocol
-  //
-  Status = gBS->LocateProtocol (
-                  &gEfiHiiDatabaseProtocolGuid,
-                  NULL,
-                  (VOID **) &HiiDatabase
-                  );
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  //
-  // Install Keyboard Layout package to HII database
-  //
-  HiiHandle = HiiAddPackages (
-                &gUsbKeyboardLayoutPackageGuid,
-                UsbKeyboardDevice->ControllerHandle,
-                &mUsbKeyboardLayoutBin,
-                NULL
-                );
-  if (HiiHandle == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  //
-  // Set current keyboard layout
-  //
-  Status = HiiDatabase->SetKeyboardLayout (HiiDatabase, &gUsbKeyboardLayoutKeyGuid);
-
-  return Status;
-}
-
 
 /**
   Uses USB I/O to check whether the device is a USB keyboard device.
@@ -397,65 +349,6 @@ IsUSBKeyboard (
   }
 
   return FALSE;
-}
-
-/**
-  Get current keyboard layout from HII database.
-
-  @return Pointer to HII Keyboard Layout.
-          NULL means failure occurred while trying to get keyboard layout.
-
-**/
-EFI_HII_KEYBOARD_LAYOUT *
-GetCurrentKeyboardLayout (
-  VOID
-  )
-{
-  EFI_STATUS                Status;
-  EFI_HII_DATABASE_PROTOCOL *HiiDatabase;
-  EFI_HII_KEYBOARD_LAYOUT   *KeyboardLayout;
-  UINT16                    Length;
-
-  //
-  // Locate HII Database Protocol
-  //
-  Status = gBS->LocateProtocol (
-                  &gEfiHiiDatabaseProtocolGuid,
-                  NULL,
-                  (VOID **) &HiiDatabase
-                  );
-  if (EFI_ERROR (Status)) {
-    return NULL;
-  }
-
-  //
-  // Get current keyboard layout from HII database
-  //
-  Length = 0;
-  KeyboardLayout = NULL;
-  Status = HiiDatabase->GetKeyboardLayout (
-                          HiiDatabase,
-                          NULL,
-                          &Length,
-                          KeyboardLayout
-                          );
-  if (Status == EFI_BUFFER_TOO_SMALL) {
-    KeyboardLayout = AllocatePool (Length);
-    ASSERT (KeyboardLayout != NULL);
-
-    Status = HiiDatabase->GetKeyboardLayout (
-                            HiiDatabase,
-                            NULL,
-                            &Length,
-                            KeyboardLayout
-                            );
-    if (EFI_ERROR (Status)) {
-      FreePool (KeyboardLayout);
-      KeyboardLayout = NULL;
-    }
-  }
-
-  return KeyboardLayout;
 }
 
 /**
@@ -570,25 +463,58 @@ FindPhysicalKey (
 }
 
 /**
-  The notification function for EFI_HII_SET_KEYBOARD_LAYOUT_EVENT_GUID.
+  Destroy resources for keyboard layout.
 
-  This function is registered to event of EFI_HII_SET_KEYBOARD_LAYOUT_EVENT_GUID
-  group type, which will be triggered by EFI_HII_DATABASE_PROTOCOL.SetKeyboardLayout().
-  It tries to get curent keyboard layout from HII database.
-
-  @param  Event        Event being signaled.
-  @param  Context      Points to USB_KB_DEV instance.
+  @param  UsbKeyboardDevice    The USB_KB_DEV instance.
 
 **/
 VOID
-EFIAPI
-SetKeyboardLayoutEvent (
-  IN EFI_EVENT              Event,
-  IN VOID                   *Context
+ReleaseKeyboardLayoutResources (
+  IN OUT USB_KB_DEV              *UsbKeyboardDevice
   )
 {
-  USB_KB_DEV                *UsbKeyboardDevice;
-  EFI_HII_KEYBOARD_LAYOUT   *KeyboardLayout;
+  USB_NS_KEY      *UsbNsKey;
+  LIST_ENTRY      *Link;
+
+  if (UsbKeyboardDevice->KeyConvertionTable != NULL) {
+    FreePool (UsbKeyboardDevice->KeyConvertionTable);
+  }
+  UsbKeyboardDevice->KeyConvertionTable = NULL;
+
+  if (UsbKeyboardDevice->NsKeyList.ForwardLink == NULL) {
+    return;
+  }
+
+  while (!IsListEmpty (&UsbKeyboardDevice->NsKeyList)) {
+    Link = GetFirstNode (&UsbKeyboardDevice->NsKeyList);
+    UsbNsKey = USB_NS_KEY_FORM_FROM_LINK (Link);
+    RemoveEntryList (&UsbNsKey->Link);
+
+    FreePool (UsbNsKey->NsKey);
+    FreePool (UsbNsKey);
+  }
+}
+
+/**
+  Initialize USB keyboard layout.
+
+  This function initializes Key Convertion Table for the USB keyboard device.
+  It first tries to retrieve layout from HII database. If failed and default
+  layout is enabled, then it just uses the default layout.
+
+  @param  UsbKeyboardDevice      The USB_KB_DEV instance.
+
+  @retval EFI_SUCCESS            Initialization succeeded.
+  @retval EFI_NOT_READY          Keyboard layout cannot be retrieve from HII
+                                 database, and default layout is disabled.
+  @retval Other                  Fail to register event to EFI_HII_SET_KEYBOARD_LAYOUT_EVENT_GUID group.
+
+**/
+EFI_STATUS
+InitKeyboardLayout (
+  OUT USB_KB_DEV   *UsbKeyboardDevice
+  )
+{
   EFI_KEY_DESCRIPTOR        TempKey;
   EFI_KEY_DESCRIPTOR        *KeyDescriptor;
   EFI_KEY_DESCRIPTOR        *TableEntry;
@@ -599,31 +525,17 @@ SetKeyboardLayoutEvent (
   UINTN                     KeyCount;
   UINT8                     KeyCode;
 
-  UsbKeyboardDevice = (USB_KB_DEV *) Context;
-  if (UsbKeyboardDevice->Signature != USB_KB_DEV_SIGNATURE) {
-    return;
-  }
-
-  //
-  // Try to get current keyboard layout from HII database
-  //
-  KeyboardLayout = GetCurrentKeyboardLayout ();
-  if (KeyboardLayout == NULL) {
-    return;
-  }
-
-  //
-  // Re-allocate resource for KeyConvertionTable
-  //
-  ReleaseKeyboardLayoutResources (UsbKeyboardDevice);
   UsbKeyboardDevice->KeyConvertionTable = AllocateZeroPool ((NUMBER_OF_VALID_USB_KEYCODE) * sizeof (EFI_KEY_DESCRIPTOR));
   ASSERT (UsbKeyboardDevice->KeyConvertionTable != NULL);
+
+  InitializeListHead (&UsbKeyboardDevice->NsKeyList);
+  UsbKeyboardDevice->CurrentNsKey = NULL;
 
   //
   // Traverse the list of key descriptors following the header of EFI_HII_KEYBOARD_LAYOUT
   //
-  KeyDescriptor = (EFI_KEY_DESCRIPTOR *) (((UINT8 *) KeyboardLayout) + sizeof (EFI_HII_KEYBOARD_LAYOUT));
-  for (Index = 0; Index < KeyboardLayout->DescriptorCount; Index++) {
+  KeyDescriptor = (EFI_KEY_DESCRIPTOR *) (&mUsbKeyboardLayoutBin.KeyDescriptor[0]);
+  for (Index = 0; Index < mUsbKeyboardLayoutBin.DescriptorCount; Index++) {
     //
     // Copy from HII keyboard layout package binary for alignment
     //
@@ -636,8 +548,7 @@ SetKeyboardLayoutEvent (
     TableEntry = GetKeyDescriptor (UsbKeyboardDevice, KeyCode);
     if (TableEntry == NULL) {
       ReleaseKeyboardLayoutResources (UsbKeyboardDevice);
-      FreePool (KeyboardLayout);
-      return;
+      return EFI_OUT_OF_RESOURCES;
     }
     CopyMem (TableEntry, KeyDescriptor, sizeof (EFI_KEY_DESCRIPTOR));
 
@@ -653,7 +564,7 @@ SetKeyboardLayoutEvent (
       //
       KeyCount = 0;
       NsKey = KeyDescriptor + 1;
-      for (Index2 = (UINT8) Index + 1; Index2 < KeyboardLayout->DescriptorCount; Index2++) {
+      for (Index2 = (UINT8) Index + 1; Index2 < mUsbKeyboardLayoutBin.DescriptorCount; Index2++) {
         CopyMem (&TempKey, NsKey, sizeof (EFI_KEY_DESCRIPTOR));
         if (TempKey.Modifier == EFI_NS_KEY_DEPENDENCY_MODIFIER) {
           KeyCount++;
@@ -687,106 +598,6 @@ SetKeyboardLayoutEvent (
   TableEntry = GetKeyDescriptor (UsbKeyboardDevice, 0x58);
   KeyDescriptor = GetKeyDescriptor (UsbKeyboardDevice, 0x28);
   CopyMem (TableEntry, KeyDescriptor, sizeof (EFI_KEY_DESCRIPTOR));
-
-  FreePool (KeyboardLayout);
-}
-
-/**
-  Destroy resources for keyboard layout.
-
-  @param  UsbKeyboardDevice    The USB_KB_DEV instance.
-
-**/
-VOID
-ReleaseKeyboardLayoutResources (
-  IN OUT USB_KB_DEV              *UsbKeyboardDevice
-  )
-{
-  USB_NS_KEY      *UsbNsKey;
-  LIST_ENTRY      *Link;
-
-  if (UsbKeyboardDevice->KeyConvertionTable != NULL) {
-    FreePool (UsbKeyboardDevice->KeyConvertionTable);
-  }
-  UsbKeyboardDevice->KeyConvertionTable = NULL;
-
-  while (!IsListEmpty (&UsbKeyboardDevice->NsKeyList)) {
-    Link = GetFirstNode (&UsbKeyboardDevice->NsKeyList);
-    UsbNsKey = USB_NS_KEY_FORM_FROM_LINK (Link);
-    RemoveEntryList (&UsbNsKey->Link);
-
-    FreePool (UsbNsKey->NsKey);
-    FreePool (UsbNsKey);
-  }
-}
-
-/**
-  Initialize USB keyboard layout.
-
-  This function initializes Key Convertion Table for the USB keyboard device.
-  It first tries to retrieve layout from HII database. If failed and default
-  layout is enabled, then it just uses the default layout.
-
-  @param  UsbKeyboardDevice      The USB_KB_DEV instance.
-
-  @retval EFI_SUCCESS            Initialization succeeded.
-  @retval EFI_NOT_READY          Keyboard layout cannot be retrieve from HII
-                                 database, and default layout is disabled.
-  @retval Other                  Fail to register event to EFI_HII_SET_KEYBOARD_LAYOUT_EVENT_GUID group.
-
-**/
-EFI_STATUS
-InitKeyboardLayout (
-  OUT USB_KB_DEV   *UsbKeyboardDevice
-  )
-{
-  EFI_HII_KEYBOARD_LAYOUT   *KeyboardLayout;
-  EFI_STATUS                Status;
-
-  UsbKeyboardDevice->KeyConvertionTable = AllocateZeroPool ((NUMBER_OF_VALID_USB_KEYCODE) * sizeof (EFI_KEY_DESCRIPTOR));
-  ASSERT (UsbKeyboardDevice->KeyConvertionTable != NULL);
-
-  InitializeListHead (&UsbKeyboardDevice->NsKeyList);
-  UsbKeyboardDevice->CurrentNsKey = NULL;
-  UsbKeyboardDevice->KeyboardLayoutEvent = NULL;
-
-  //
-  // Register event to EFI_HII_SET_KEYBOARD_LAYOUT_EVENT_GUID group,
-  // which will be triggered by EFI_HII_DATABASE_PROTOCOL.SetKeyboardLayout().
-  //
-  Status = gBS->CreateEventEx (
-                  EVT_NOTIFY_SIGNAL,
-                  TPL_NOTIFY,
-                  SetKeyboardLayoutEvent,
-                  UsbKeyboardDevice,
-                  &gEfiHiiKeyBoardLayoutGuid,
-                  &UsbKeyboardDevice->KeyboardLayoutEvent
-                  );
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  KeyboardLayout = GetCurrentKeyboardLayout ();
-  if (KeyboardLayout != NULL) {
-    //
-    // If current keyboard layout is successfully retrieved from HII database,
-    // force to initialize the keyboard layout.
-    //
-    gBS->SignalEvent (UsbKeyboardDevice->KeyboardLayoutEvent);
-  } else {
-    if (FeaturePcdGet (PcdDisableDefaultKeyboardLayoutInUsbKbDriver)) {
-      //
-      // If no keyboard layout can be retrieved from HII database, and default layout
-      // is disabled, then return EFI_NOT_READY.
-      //
-      return EFI_NOT_READY;
-    }
-    //
-    // If no keyboard layout can be retrieved from HII database, and default layout
-    // is enabled, then load the default keyboard layout.
-    //
-    InstallDefaultKeyboardLayout (UsbKeyboardDevice);
-  }
 
   return EFI_SUCCESS;
 }
@@ -1116,7 +927,7 @@ KeyboardHandler (
 
   //
   // Handle modifier key's pressing or releasing situation.
-  // According to USB HID Firmware spec, Byte 0 uses folloing map of Modifier keys:
+  // According to USB HID Firmware spec, Byte 0 uses following map of Modifier keys:
   // Bit0: Left Control,  Keycode: 0xe0
   // Bit1: Left Shift,    Keycode: 0xe1
   // Bit2: Left Alt,      Keycode: 0xe2
@@ -1254,7 +1065,7 @@ KeyboardHandler (
 
   //
   // If there is new key pressed, update the RepeatKey value, and set the
-  // timer to repeate delay timer
+  // timer to repeat delay timer
   //
   if (NewRepeatKey != 0) {
     //
@@ -1308,7 +1119,6 @@ USBParseKey (
     if (KeyDescriptor == NULL) {
       continue;
     }
-
     if (!UsbKey.Down) {
       //
       // Key is released.
@@ -1504,7 +1314,10 @@ USBParseKey (
     //
     if (KeyDescriptor->Modifier == EFI_DELETE_MODIFIER) {
       if ((UsbKeyboardDevice->CtrlOn) && (UsbKeyboardDevice->AltOn)) {
-        gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
+        //
+        // CHANGE: Use library call to be able to centrally alter the behaviour.
+        //
+        ResetWarm ();
       }
     }
 

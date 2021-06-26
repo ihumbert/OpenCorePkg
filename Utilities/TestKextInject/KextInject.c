@@ -21,21 +21,7 @@
 #include <string.h>
 #include <sys/time.h>
 
-#include <File.h>
-
-/*
- for fuzzing (TODO):
- clang-mp-7.0 -DFUZZING_TEST=1 -g -fsanitize=undefined,address,fuzzer -Wno-incompatible-pointer-types-discards-qualifiers -I../Include -I../../Include -I../../../MdePkg/Include/ -I../../../EfiPkg/Include/ -include ../Include/Base.h Prelinked.c ../../Library/OcXmlLib/OcXmlLib.c ../../Library/OcTemplateLib/OcTemplateLib.c ../../Library/OcSerializeLib/OcSerializeLib.c ../../Library/OcMiscLib/Base64Decode.c ../../Library/OcStringLib/OcAsciiLib.c ../../Library/OcMachoLib/CxxSymbols.c ../../Library/OcMachoLib/Header.c ../../Library/OcMachoLib/Relocations.c ../../Library/OcMachoLib/Symbols.c ../../Library/OcAppleKernelLib/PrelinkedContext.c ../../Library/OcAppleKernelLib/PrelinkedKext.c ../../Library/OcAppleKernelLib/KextPatcher.c ../../Library/OcMiscLib/DataPatcher.c ../../Library/OcAppleKernelLib/Link.c ../../Library/OcAppleKernelLib/Vtables.c ../../Library/OcAppleKernelLib/KernelReader.c ../../Library/OcCompressionLib/lzss/lzss.c ../../Library/OcCompressionLib/lzvn/lzvn.c ../../Tests/KernelTest/Lilu.c ../../Tests/KernelTest/Vsmc.c -o Prelinked
- rm -rf DICT fuzz*.log ; mkdir DICT ; find /System/Library/Extensions/<< * >>/Contents/MacOS -type f -exec cp {} DICT \; UBSAN_OPTIONS='halt_on_error=1' ./Prelinked -jobs=4 DICT -rss_limit_mb=4096
-
- rm -rf Prelinked.dSYM DICT fuzz*.log Prelinked
-
- clang -DTEST_SLE=1 -g -O3 -fno-sanitize=undefined,address -Wno-incompatible-pointer-types-discards-qualifiers -I../Include -I../../Include -I../../../MdePkg/Include/ -I../../../EfiPkg/Include/ -include ../Include/Base.h Prelinked.c ../../Library/OcXmlLib/OcXmlLib.c ../../Library/OcTemplateLib/OcTemplateLib.c ../../Library/OcSerializeLib/OcSerializeLib.c ../../Library/OcMiscLib/Base64Decode.c ../../Library/OcStringLib/OcAsciiLib.c ../../Library/OcMachoLib/CxxSymbols.c ../../Library/OcMachoLib/Header.c ../../Library/OcMachoLib/Relocations.c ../../Library/OcMachoLib/Symbols.c ../../Library/OcAppleKernelLib/PrelinkedContext.c ../../Library/OcAppleKernelLib/PrelinkedKext.c ../../Library/OcAppleKernelLib/KextPatcher.c ../../Library/OcMiscLib/DataPatcher.c ../../Library/OcAppleKernelLib/Link.c ../../Library/OcAppleKernelLib/Vtables.c ../../Library/OcAppleKernelLib/KernelReader.c ../../Library/OcCompressionLib/lzss/lzss.c ../../Library/OcCompressionLib/lzvn/lzvn.c ../../Tests/KernelTest/Lilu.c ../../Tests/KernelTest/Vsmc.c  -o Prelinked
-
- for i in /System/Library/Extensions/<< * >>.kext ; do plist=$i/Contents/Info.plist ; kext="$i/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$plist")" ; echo "$kext $plist" ; ./Prelinked prelinkedkernel.unpack "$kext" "$plist" ; done
-
- /[^\n]+\nPassed.kext injected - 0x8[^\n]+
-*/
+#include <UserFile.h>
 
 STATIC BOOLEAN FailedToProcess = FALSE;
 STATIC UINT32  KernelVersion   = 0;
@@ -379,6 +365,30 @@ ApplyKextPatches (
   } else {
     DEBUG ((DEBUG_WARN, "[OK] Success KernelQuirkCustomSmbiosGuid2\n"));
   }
+
+  Status = PrelinkedContextApplyQuirk (Context, KernelQuirkExtendBTFeatureFlags, KernelVersion);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "[FAIL] Failed to apply KernelQuirkExtendBTFeatureFlags - %r\n", Status));
+    FailedToProcess = TRUE;
+  } else {
+    DEBUG ((DEBUG_WARN, "[OK] Success KernelQuirkExtendBTFeatureFlags\n"));
+  }
+
+  Status = PrelinkedContextApplyQuirk (Context, KernelQuirkForceSecureBootScheme, KernelVersion);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "[FAIL] Failed to apply KernelQuirkForceSecureBootScheme - %r\n", Status));
+    FailedToProcess = TRUE;
+  } else {
+    DEBUG ((DEBUG_WARN, "[OK] Success KernelQuirkForceSecureBootScheme\n"));
+  }
+
+  Status = PrelinkedContextApplyQuirk (Context, KernelQuirkSetApfsTrimTimeout, KernelVersion);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "[FAIL] Failed to apply KernelQuirkSetApfsTrimTimeout - %r\n", Status));
+    FailedToProcess = TRUE;
+  } else {
+    DEBUG ((DEBUG_WARN, "[OK] Success KernelQuirkSetApfsTrimTimeout\n"));
+  }
 }
 
 VOID
@@ -393,7 +403,8 @@ ApplyKernelPatches (
   Status = PatcherInitContextFromBuffer (
     &Patcher,
     Kernel,
-    Size
+    Size,
+    FALSE
     );
 
   if (!EFI_ERROR (Status)) {
@@ -414,7 +425,8 @@ ApplyKernelPatches (
       &Patcher,
       &CpuInfo,
       VirtualCpuid,
-      VirtualCpuidMask
+      VirtualCpuidMask,
+      KernelVersion
       );
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_WARN, "[FAIL] CPUID kernel patch - %r\n", Status));
@@ -471,15 +483,19 @@ ApplyKernelPatches (
     } else {
       DEBUG ((DEBUG_WARN, "[OK] KernelQuirkPowerTimeoutKernelPanic patch\n"));
     }
+
+    Status = KernelApplyQuirk (KernelQuirkSegmentJettison, &Patcher, KernelVersion);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "[FAIL] KernelQuirkSegmentJettison - %r\n", Status));
+      FailedToProcess = TRUE;
+    } else {
+      DEBUG ((DEBUG_WARN, "[OK] KernelQuirkSegmentJettison patch\n"));
+    }
   } else {
     DEBUG ((DEBUG_WARN, "Failed to find kernel - %r\n", Status));
     FailedToProcess = TRUE;
   }
 }
-
-#ifdef FUZZING_TEST
-#define main no_main
-#endif
 
 static EFI_FILE_PROTOCOL nilFilProtocol;
 
@@ -522,7 +538,7 @@ int wrap_main(int argc, char** argv) {
   UINT32 AllocSize;
   PRELINKED_CONTEXT Context;
   const char *name = argc > 1 ? argv[1] : "/System/Library/PrelinkedKernels/prelinkedkernel";
-  if ((Prelinked = readFile(name, &PrelinkedSize)) == NULL) {
+  if ((Prelinked = UserReadFile(name, &PrelinkedSize)) == NULL) {
     printf("Read fail %s\n", name);
     return -1;
   }
@@ -541,7 +557,7 @@ int wrap_main(int argc, char** argv) {
         TestData = NULL;
         TestDataSize = 0;
       } else {
-        TestData = readFile(argv[argi + 2], &TestDataSize);
+        TestData = UserReadFile(argv[argi + 2], &TestDataSize);
         if (TestData == NULL) {
           printf("Read data fail %s\n", argv[argi + 2]);
           abort();
@@ -551,7 +567,7 @@ int wrap_main(int argc, char** argv) {
     }
 
     if (argc - argi > 3) {
-      TestPlist = (CHAR8*) readFile(argv[argi + 3], &TestPlistSize);
+      TestPlist = (CHAR8*) UserReadFile(argv[argi + 3], &TestPlistSize);
       if (TestPlist == NULL) {
         printf("Read plist fail\n");
         free(TestData);
@@ -567,7 +583,8 @@ int wrap_main(int argc, char** argv) {
       &ReservedExeSize,
       TestPlistSize,
       TestData,
-      TestDataSize
+      TestDataSize,
+      FALSE
       );
 
     free(TestData);
@@ -628,7 +645,8 @@ int wrap_main(int argc, char** argv) {
   Status = PatcherInitContextFromBuffer (
     &Patcher,
     Prelinked,
-    PrelinkedSize
+    PrelinkedSize,
+    FALSE
     );
   if (!EFI_ERROR (Status)) {
     DEBUG ((DEBUG_WARN, "[OK] Patcher init success\n"));
@@ -637,11 +655,9 @@ int wrap_main(int argc, char** argv) {
     FailedToProcess = TRUE;
   }
 
-  Status = PrelinkedContextInit (&Context, Prelinked, PrelinkedSize, AllocSize);
+  Status = PrelinkedContextInit (&Context, Prelinked, PrelinkedSize, AllocSize, FALSE);
 
   if (!EFI_ERROR (Status)) {
-    ApplyKextPatches (&Context);
-
     Status = PrelinkedInjectPrepare (&Context, LinkedExpansion, ReservedExeSize);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_WARN, "[FAIL] Prelink inject prepare error %r\n", Status));
@@ -651,6 +667,7 @@ int wrap_main(int argc, char** argv) {
 
     Status = PrelinkedInjectKext (
       &Context,
+      NULL,
       "/Library/Extensions/PlistKext.kext",
       KextInfoPlistData,
       sizeof (KextInfoPlistData),
@@ -679,7 +696,7 @@ int wrap_main(int argc, char** argv) {
           TestData = NULL;
           TestDataSize = 0;
         } else {
-          TestData = readFile(argv[2], &TestDataSize);
+          TestData = UserReadFile(argv[2], &TestDataSize);
           if (TestData == NULL) {
             printf("Read data fail %s\n", argv[2]);
             abort();
@@ -689,7 +706,7 @@ int wrap_main(int argc, char** argv) {
       }
 
       if (argc > 3) {
-        TestPlist = (CHAR8*) readFile(argv[3], &TestPlistSize);
+        TestPlist = (CHAR8*) UserReadFile(argv[3], &TestPlistSize);
         if (TestPlist == NULL) {
           printf("Read plist fail\n");
           abort();
@@ -702,6 +719,7 @@ int wrap_main(int argc, char** argv) {
 
       Status = PrelinkedInjectKext (
         &Context,
+        NULL,
         KextPath,
         TestPlist,
         TestPlistSize,
@@ -729,7 +747,9 @@ int wrap_main(int argc, char** argv) {
 
     Status = PrelinkedInjectComplete (&Context);
 
-    writeFile("out.bin", Prelinked, Context.PrelinkedSize);
+    ApplyKextPatches (&Context);
+
+    UserWriteFile("out.bin", Prelinked, Context.PrelinkedSize);
 
     if (!EFI_ERROR (Status)) {
       DEBUG ((DEBUG_WARN, "[OK] Prelink inject complete success\n"));
@@ -759,7 +779,7 @@ INT32 LLVMFuzzerTestOneInput(CONST UINT8 *Data, UINTN Size) {
     return 0;
   }
 
-  if ((Prelinked = readFile("prelinkedkernel.unpack", &PrelinkedSize)) == NULL) {
+  if ((Prelinked = UserReadFile("prelinkedkernel.unpack", &PrelinkedSize)) == NULL) {
     printf("Read fail\n");
     return 0;
   }
@@ -771,7 +791,7 @@ INT32 LLVMFuzzerTestOneInput(CONST UINT8 *Data, UINTN Size) {
     return 0;
   }
 
-  EFI_STATUS Status = PrelinkedContextInit (&Context, Prelinked, PrelinkedSize, AllocSize);
+  EFI_STATUS Status = PrelinkedContextInit (&Context, Prelinked, PrelinkedSize, AllocSize, FALSE);
 
   if (EFI_ERROR (Status)) {
     free (Prelinked);
@@ -788,6 +808,7 @@ INT32 LLVMFuzzerTestOneInput(CONST UINT8 *Data, UINTN Size) {
 
   Status = PrelinkedInjectKext (
       &Context,
+      NULL,
       "/Library/Extensions/Lilu.kext",
       KextInfoPlistData, ///< FIXME: has no executable
       sizeof (KextInfoPlistData),
@@ -803,7 +824,7 @@ INT32 LLVMFuzzerTestOneInput(CONST UINT8 *Data, UINTN Size) {
   return 0;
 }
 
-int main(int argc, char *argv[]) {
+int ENTRY_POINT(int argc, char *argv[]) {
   int code = wrap_main(argc, argv);
   if (FailedToProcess) {
     code = -1;

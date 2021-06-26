@@ -33,11 +33,13 @@
 [Sources]
   AppleHibernate.c
   ApplePanic.c
+  AppleRecovery.c
   BootArguments.c
   BootAudio.c
   BootEntryInfo.c
   BootEntryManagement.c
   BootManagementInternal.h
+  BuiltinPicker.c
   DefaultEntryChoice.c
   DmgBootSupport.c
   HotKeySupport.c
@@ -49,6 +51,8 @@
 [Packages]
   OpenCorePkg/OpenCorePkg.dec
   MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
 
 [Guids]
   gAppleApfsContainerInfoGuid                   ## SOMETIMES_CONSUMES
@@ -106,11 +110,16 @@
   OcAppleSecureBootLib
   OcConsoleLib
   OcCryptoLib
+  OcDeviceMiscLib
   OcDevicePathLib
   OcGuardLib
   OcFileLib
   OcMachoLib
+  OcMiscLib
+  OcPeCoffLib
   OcRtcLib
+  OcTypingLib
   OcXmlLib
   TimerLib
   FileHandleLib
+  ResetSystemLib

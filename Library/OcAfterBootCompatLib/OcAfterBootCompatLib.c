@@ -96,7 +96,8 @@ GetBootCompatContext (
 
 EFI_STATUS
 OcAbcInitialize (
-  IN OC_ABC_SETTINGS  *Settings
+  IN OC_ABC_SETTINGS  *Settings,
+  IN OC_CPU_INFO      *CpuInfo
   )
 {
   EFI_STATUS           Status;
@@ -111,10 +112,12 @@ OcAbcInitialize (
 
   DEBUG ((
     DEBUG_INFO,
-    "OCABC: RTDFRG %d DEVMMIO %d NOSU %d NOVRWR %d NOSB %d NOHBMAP %d SMSLIDE %d WRUNPROT %d\n",
+    "OCABC: ALRBL %d RTDFRG %d DEVMMIO %d NOSU %d NOVRWR %d NOSB %d FBSIG %d NOHBMAP %d SMSLIDE %d WRUNPROT %d\n",
+    Settings->AllowRelocationBlock,
     Settings->AvoidRuntimeDefrag,
     Settings->DevirtualiseMmio,
     Settings->DisableSingleUser,
+    Settings->ForceBooterSignature,
     Settings->DisableVariableWrite,
     Settings->ProtectSecureBoot,
     Settings->DiscardHibernateMap,
@@ -154,24 +157,9 @@ OcAbcInitialize (
     sizeof (BootCompat->Settings)
     );
 
+  BootCompat->CpuInfo = CpuInfo;
+
   InstallServiceOverrides (BootCompat);
 
   return EFI_SUCCESS;
-}
-
-EFI_STATUS
-OcAbcIs32BitPreferred (
-  OUT BOOLEAN     *Prefer32Bit
-  )
-{
-  BOOT_COMPAT_CONTEXT    *BootCompat;
-
-  BootCompat = GetBootCompatContext ();
-
-  if (BootCompat->ServiceState.AppleArch) {
-    *Prefer32Bit = BootCompat->ServiceState.AppleArchPrefer32Bit;
-    return EFI_SUCCESS;
-  }
-
-  return EFI_NOT_FOUND;
 }

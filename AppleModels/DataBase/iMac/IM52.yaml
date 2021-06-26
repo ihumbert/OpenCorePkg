@@ -62,7 +62,7 @@ SmcPlatform:
   - 0x00
 # FIXME: check
 SmcEPCI: 0x73002
-OEMStrings: ""
+OEMStrings: |-
 Specifications:
   CPUCodename:
     - "Merom"
@@ -74,7 +74,8 @@ Specifications:
     - "667 MHz DDR2 SDRAM, PC2-5300"
   SystemReportName:
     - "iMac (17-inch, Late 2006 CD)"
-  MarketingName: ""
+  MarketingName:
+    - "iMac (17-inch CD, Late 2006)"
 # Note, first model code is used by macserial
 AppleModelCode:
   - "WH5"

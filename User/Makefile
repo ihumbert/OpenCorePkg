@@ -5,6 +5,8 @@
 
 .DEFAULT_GOAL := all
 
+LCOV          ?= lcov
+GENHTML       ?= genhtml
 CC            ?= gcc
 MKDIR         := mkdir -p
 
@@ -16,6 +18,10 @@ ifeq ($(UDK_PATH),)
 	endif
 endif
 
+ifeq ($(OC_USER),)
+	OC_USER := ../..
+endif
+
 ifeq ($(OS),Windows_NT)
 	DIST ?= Windows
 else
@@ -23,7 +29,7 @@ else
 endif
 
 #
-# Primary architecture. 
+# Primary architecture.
 #
 UDK_ARCH ?= X64
 
@@ -32,43 +38,69 @@ UDK_ARCH ?= X64
 #
 CFLAGS   := -c -fshort-wchar -Wall -Wextra -D EFIUSER
 
+ifeq ($(STATIC),1)
+	LDFLAGS += -static
+endif
+
 ifeq ($(WERROR),1)
-	CFLAGS  += -Werror
+	CFLAGS += -Werror
 endif
 
 ifeq ($(shell echo 'int a;' | "${CC}" -Wno-unused-parameter -x c -c - -o /dev/null 2>&1),)
-	CFLAGS  += -Wno-unused-parameter
+	CFLAGS += -Wno-unused-parameter
 endif
 
 ifeq ($(shell echo 'int a;' | "${CC}" -Wno-implicit-fallthrough -x c -c - -o /dev/null 2>&1),)
-	CFLAGS  += -Wno-implicit-fallthrough
+	CFLAGS += -Wno-implicit-fallthrough
 endif
 
 ifeq ($(shell echo 'int a;' | "${CC}" -Wno-strict-aliasing -x c -c - -o /dev/null 2>&1),)
-	CFLAGS  += -Wno-strict-aliasing
+	CFLAGS += -Wno-strict-aliasing
 endif
 
 ifeq ($(shell echo 'int a;' | "${CC}" -Wno-address -x c -c - -o /dev/null 2>&1),)
-	CFLAGS  += -Wno-address
+	CFLAGS += -Wno-address
 endif
 
 ifeq ($(DIST),Darwin)
-	CFLAGS  += -mmacosx-version-min=10.6
-	LDFLAGS += -mmacosx-version-min=10.6
+	ifneq ($(FUZZ),1)
+		CFLAGS  += -mmacosx-version-min=10.6 --target=x86_64-apple-darwin
+		LDFLAGS += -mmacosx-version-min=10.6 --target=x86_64-apple-darwin
+	endif
 endif
 
 ifeq ($(DIST),Windows)
-	SUFFIX  := .exe
-	CFLAGS  += -D_ISOC99_SOURCE=1
+	SUFFIX := .exe
+	CFLAGS += -D_ISOC99_SOURCE=1
 endif
 
 ifeq ($(SANITIZE),1)
-	CFLAGS  += -fsanitize=undefined,address
+	CFLAGS  += -fsanitize=undefined,address -D SANITIZE_TEST
 	LDFLAGS += -fsanitize=undefined,address
 endif
 
+ifeq ($(FUZZ),1)
+	CFLAGS  += -fsanitize=fuzzer -D FUZZING_TEST -D ENTRY_POINT=no_main
+	LDFLAGS += -fsanitize=fuzzer
+else
+	CFLAGS  += -D ENTRY_POINT=main
+endif
+
+ifeq ($(FUZZ_JOBS),)
+	FUZZ_JOBS = 4
+endif
+
+ifeq ($(FUZZ_MEM),)
+	FUZZ_MEM = 4096
+endif
+
+ifeq ($(COVERAGE),1)
+	CFLAGS  += -fprofile-arcs -ftest-coverage -D COVERAGE_TEST
+	LDFLAGS += --coverage
+endif
+
 ifeq ($(DEBUG),1)
-	CFLAGS  += -g -O0
+	CFLAGS  += -g -O0 -D EFIUSER_DEBUG
 	#
 	# Forcibly disable stripping when enabling DEBUG mode.
 	#
@@ -86,8 +118,8 @@ endif
 #
 # Search Paths.
 #
-CFLAGS += -I../../User/Include
-CFLAGS += -I../../Include/Acidanthera -I../../Include/Apple -I../../Include/Apple/$(UDK_ARCH) -I../../Include/Generic -I../../Include/Intel -I../../Include/Microsoft
+CFLAGS += -I$(OC_USER)/User/Include
+CFLAGS += -I$(OC_USER)/Include/Acidanthera -I$(OC_USER)/Include/Apple -I$(OC_USER)/Include/Apple/$(UDK_ARCH) -I$(OC_USER)/Include/Generic -I$(OC_USER)/Include/Intel -I$(OC_USER)/Include/Microsoft -I$(OC_USER)/Include/Nvidia
 
 #
 # Skip including UDK when suggesting STANDALONE mode.
@@ -100,7 +132,7 @@ ifneq ($(STANDALONE),1)
 	#
 	# Compatibility headers.
 	#
-	CFLAGS  += -include ../../User/Include/Pcd.h -include ../../User/Include/GlobalVar.h
+	CFLAGS  += -include $(OC_USER)/User/Include/UserPcd.h -include $(OC_USER)/User/Include/UserGlobalVar.h
 	#
 	# UDK implementations.
 	#
@@ -108,11 +140,11 @@ ifneq ($(STANDALONE),1)
 	#
 	# Customised/Simplified implementations at userspace level.
 	#
-	OBJS    += BaseMemoryLib.o BootServices.o GlobalVar.o UserMath.o UserMisc.o Pcd.o OcDummy.o
+	OBJS    += UserBaseMemoryLib.o UserBootServices.o UserGlobalVar.o UserMath.o UserMisc.o UserPcd.o UserOcDummy.o
 	#
 	# OcGuardLib targets.
 	#
-	OBJS    += BitOverflow.o NativeOverflow.o TripleOverflow.o
+	OBJS    += BitOverflow.o NativeOverflow.o TripleOverflow.o Alignment.o
 	#
 	# OcSerializeLib targets.
 	#
@@ -132,11 +164,11 @@ ifneq ($(STANDALONE),1)
 	#
 	# OcCryptoLib targets.
 	#
-	OBJS    += RsaDigitalSign.o BigNumMontgomery.o BigNumPrimitives.o BigNumWordMul64.o Sha2.o SecureMem.o
+	OBJS    += RsaDigitalSign.o BigNumMontgomery.o BigNumPrimitives.o BigNumWordMul64.o Sha2.o SecureMem.o Sha512AvxDummy.o
 	#
 	# OcMachoLib targets.
 	#
-	OBJS    += CxxSymbols.o Fat.o Header.o Symbols.o Relocations.o
+	OBJS    += CxxSymbols.o Fat.o Header.o Macho32.o Macho64.o Relocations.o Symbols.o
 	#
 	# OcAppleKeysLib targets.
 	#
@@ -144,11 +176,15 @@ ifneq ($(STANDALONE),1)
 	#
 	# OcCpuLib targets.
 	#
-	OBJS    += FrequencyDetect.o AppleCpuSupport.o OcCpuLib.o
+	OBJS    += FrequencyDetect.o AppleCpuSupport.o OcCpuLib.o MeasureTicks.o
 	#
 	# OcMiscLib targets.
 	#
-	OBJS    += Math.o ProtocolSupport.o
+	OBJS    += Math.o ProtocolSupport.o DataPatcher.o PlatformInfo.o
+	#
+	# OcAppleKernelLib targets.
+	#
+	OBJS    += KernelVersion.o
 
 	#
 	# Add source searchpath for transparent compilation.
@@ -166,24 +202,26 @@ ifneq ($(STANDALONE),1)
 				$(UDK_PATH)/MdePkg/Library/UefiDevicePathLib:$\
 				$(UDK_PATH)/MdeModulePkg/Library/BaseBmpSupportLib:$\
 				$(UDK_PATH)/UefiCpuPkg/Library/MtrrLib:$\
-				../../Library/OcGuardLib:$\
-				../../Library/OcSerializeLib:$\
-				../../Library/OcTemplateLib:$\
-				../../Library/OcXmlLib:$\
-				../../Library/OcStringLib:$\
-				../../Library/OcCryptoLib:$\
-				../../Library/OcCryptoLib/$(UDK_ARCH):$\
-				../../Library/OcMachoLib:$\
-				../../Library/OcAppleKeysLib:$\
-				../../Library/OcCpuLib:$\
-				../../Library/OcMiscLib
+				$(OC_USER)/Library/OcGuardLib:$\
+				$(OC_USER)/Library/OcSerializeLib:$\
+				$(OC_USER)/Library/OcTemplateLib:$\
+				$(OC_USER)/Library/OcXmlLib:$\
+				$(OC_USER)/Library/OcStringLib:$\
+				$(OC_USER)/Library/OcCryptoLib:$\
+				$(OC_USER)/Library/OcCryptoLib/$(UDK_ARCH):$\
+				$(OC_USER)/Library/OcMachoLib:$\
+				$(OC_USER)/Library/OcAppleKeysLib:$\
+				$(OC_USER)/Library/OcCpuLib:$\
+				$(OC_USER)/Library/OcCpuLib/Ia32:$\
+				$(OC_USER)/Library/OcMiscLib:$\
+				$(OC_USER)/Library/OcAppleKernelLib
 endif
 
 #
 # Miscellaneous implementations that do not depend on UDK.
 #
-VPATH   += ../../User/Library:$
-OBJS    += File.o
+VPATH   += $(OC_USER)/User/Library:$
+OBJS    += UserFile.o UserPseudoRandom.o
 
 #
 # Directory where objects will be produced.
@@ -202,5 +240,24 @@ $(PRODUCT): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $(PRODUCT)
 	$(STRIP) $(STRIPFLAGS) $(PRODUCT)
 
-clean:
+fuzz: $(PRODUCT) FORCE
+	@rm -f fuzz*.log
+	@$(MKDIR) FUZZDICT
+	UBSAN_OPTIONS='halt_on_error=1' ./$(PRODUCT) -jobs=$(FUZZ_JOBS) -workers=$(FUZZ_JOBS) -rss_limit_mb=$(FUZZ_MEM) FUZZDICT
+
+coverage: $(PRODUCT) FORCE
+	@$(LCOV) --version
+	@rm -rf COVERAGE
+	@$(MKDIR) COVERAGE
+	$(LCOV) --no-checksum --zerocounters --directory .
+	$(LCOV) --no-checksum --capture --initial --directory . --output-file COVERAGE/trace.lcov_base
+	for f in FUZZDICT/*; do  ./$(PRODUCT) $$f ; done || true
+	$(LCOV) --no-checksum --capture --directory . --rc lcov_branch_coverage=1  --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT' --output-file COVERAGE/trace.lcov_info || exit 1
+	$(LCOV) --no-checksum -a COVERAGE/trace.lcov_base -a COVERAGE/trace.lcov_info --rc lcov_branch_coverage=1 --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT' --output-file COVERAGE/trace.lcov_tmp || exit 1
+	$(LCOV) --no-checksum -r COVERAGE/trace.lcov_tmp /usr/include/\* --rc lcov_branch_coverage=1  --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT' --output-file COVERAGE/trace.lcov_info_final || exit 1
+	$(GENHTML) --branch-coverage --output-directory COVERAGE COVERAGE/trace.lcov_info_final
+
+clean: FORCE
 	rm -rf $(OUT_DIR) $(PRODUCT) $(PRODUCT).exe
+
+FORCE:
